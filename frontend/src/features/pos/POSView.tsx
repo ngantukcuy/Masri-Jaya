@@ -1,0 +1,1522 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  User, 
+  Trash2, 
+  CreditCard, 
+  QrCode, 
+  Coins, 
+  Plus, 
+  Minus, 
+  Printer, 
+  UserPlus, 
+  BadgePercent,
+  Sparkles,
+  Barcode,
+  Volume2,
+  VolumeX,
+  Camera,
+  Play,
+  X,
+  Wallet
+} from 'lucide-react';
+import { Product, Customer, SalesInvoice } from '../../types';
+import { motion, AnimatePresence } from 'motion/react';
+import { recordSale } from '../../lib/cashSession';
+import { playBeep, playPrintSound } from './lib/posAudio';
+import {
+  CartItem,
+  PersistedPOSState,
+  readPersistedPOSState,
+  writePersistedPOSState,
+  clearPersistedPOSState
+} from './lib/posCartStorage';
+
+interface POSViewProps {
+  products: Product[];
+  customers: Customer[];
+  onUpdateProducts: (updatedProducts: Product[]) => void;
+  onUpdateCustomers: (updatedCustomers: Customer[]) => void;
+  onAddActivity: (title: string, subtitle: string, amount: number, type: 'sale' | 'arrival' | 'overdue' | 'quote') => void;
+  onAddSaleToKPIs: (salesAmount: number) => void;
+  onRecordSale?: (invoice: SalesInvoice) => void;
+}
+
+export default function POSView({ 
+  products, 
+  customers, 
+  onUpdateProducts, 
+  onUpdateCustomers, 
+  onAddActivity,
+  onAddSaleToKPIs,
+  onRecordSale
+}: POSViewProps) {
+  const [selectedCategory, setSelectedCategory] = useState<string>('Semua Kategori');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer>(customers[0] || {
+    id: 'CUST-01',
+    name: 'Pelanggan Umum',
+    loyaltyTier: 'Pelanggan Retail',
+    points: 0,
+    currentDebt: 0,
+    totalPurchases: 0,
+    debtStatus: 'Cleared',
+    logoLetters: 'PU',
+    lastTransactions: []
+  });
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'QRIS' | 'Split' | 'Deposit'>('Cash');
+  const [isCartPersistenceEnabled, setIsCartPersistenceEnabled] = useState(false);
+  const [showCheckoutReceipt, setShowCheckoutReceipt] = useState(false);
+  const [lastOrderDetails, setLastOrderDetails] = useState<any>(null);
+  const [showQRISModal, setShowQRISModal] = useState(false);
+  const [mobileActiveSubTab, setMobileActiveSubTab] = useState<'products' | 'cart'>('products');
+  
+  // Audio & scanner simulation states
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [scanningLineActive, setScanningLineActive] = useState(false);
+  const [scanSuccessMessage, setScanSuccessMessage] = useState('');
+  const [isPrintingAnim, setIsPrintingAnim] = useState(false);
+  const [activePrinterName, setActivePrinterName] = useState('');
+  const [scannerStatus, setScannerStatus] = useState('Siap memindai barcode');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // New Custom Add Customer states
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustLoyalty, setNewCustLoyalty] = useState('Pelanggan Retail');
+
+  // New Product quick add states
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductSku, setNewProductSku] = useState('');
+  const [newProductCategory, setNewProductCategory] = useState('Cement & Mortar');
+  const [newProductUnit, setNewProductUnit] = useState('pcs');
+  const [newProductRetailPrice, setNewProductRetailPrice] = useState('');
+  const [newProductWholesalePrice, setNewProductWholesalePrice] = useState('');
+  const [newProductProjectPrice, setNewProductProjectPrice] = useState('');
+  const [newProductStock, setNewProductStock] = useState('');
+
+  // Filter Categories
+  const categories = [
+    'Semua Kategori', 
+    'Cement & Mortar', 
+    'Paint & Coatings', 
+    'Steel & Reinforcement', 
+    'Electrical', 
+    'Metals', 
+    'Concrete', 
+    'Glazing'
+  ];
+
+  // Map category displays to Indonesian (for visual look)
+  const categoryTranslationMap: Record<string, string> = {
+    'Semua Kategori': 'Semua Kategori',
+    'Cement & Mortar': 'Semen & Semen Mortar',
+    'Paint & Coatings': 'Cat & Pelapis',
+    'Steel & Reinforcement': 'Besi & Baja Beton',
+    'Electrical': 'Alat Listrik',
+    'Metals': 'Logam Bangunan',
+    'Concrete': 'Beton Cor',
+    'Glazing': 'Kaca & Keramik'
+  };
+
+  // Filtered Products
+  const filteredProducts = products.filter((prod) => {
+    const matchesCategory = selectedCategory === 'Semua Kategori' || prod.category === selectedCategory;
+    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const handleCreateAndAddProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const name = newProductName.trim();
+    const sku = newProductSku.trim().toUpperCase();
+    const retailPrice = Number(newProductRetailPrice) || 0;
+    const wholesalePrice = Number(newProductWholesalePrice) || 0;
+    const projectPrice = Number(newProductProjectPrice) || 0;
+    const stock = Math.max(0, Number(newProductStock) || 0);
+
+    if (!name || !sku) {
+      alert('Nama barang dan SKU wajib diisi.');
+      return;
+    }
+
+    if (products.some((prod) => prod.sku.toLowerCase() === sku.toLowerCase())) {
+      alert(`SKU "${sku}" sudah ada di sistem. Gunakan SKU lain.`);
+      return;
+    }
+
+    const stockStatus: Product['stockStatus'] = stock === 0 ? 'Out of Stock' : stock <= 15 ? 'Low Stock' : 'Healthy';
+    const newProduct: Product = {
+      name,
+      sku,
+      category: newProductCategory,
+      unit: newProductUnit,
+      retailPrice,
+      wholesalePrice,
+      projectPrice,
+      stock,
+      stockStatus,
+      lastRestock: new Date().toLocaleDateString('id-ID'),
+      leadTime: 'Hari ini',
+      warehouseLocation: 'POS-QuickAdd',
+      image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=400&q=80'
+    };
+
+    const updatedProducts = [newProduct, ...products];
+    onUpdateProducts(updatedProducts);
+
+    setCart((prev) => [...prev, {
+      product: newProduct,
+      quantity: 1,
+      selectedPriceType: 'retail',
+      notes: ''
+    }]);
+    setSelectedCategory('Semua Kategori');
+    setSearchQuery('');
+    setMobileActiveSubTab('cart');
+    setShowAddProductModal(false);
+    setNewProductName('');
+    setNewProductSku('');
+    setNewProductCategory('Cement & Mortar');
+    setNewProductUnit('pcs');
+    setNewProductRetailPrice('');
+    setNewProductWholesalePrice('');
+    setNewProductProjectPrice('');
+    setNewProductStock('');
+
+    onAddActivity(
+      'Barang Baru ditambahkan',
+      `"${name}" ditambahkan dari POS dan langsung masuk keranjang`,
+      0,
+      'arrival'
+    );
+  };
+
+  // Add to cart
+  const handleAddToCart = (prod: Product, quiet = false) => {
+    if (prod.stock <= 0) {
+      alert("Stok barang habis! Silakan buat pesanan PO di tab Pembelian terlebih dahulu.");
+      return;
+    }
+
+    if (!quiet) {
+      playBeep(soundEnabled);
+    }
+
+    const existingIdx = cart.findIndex(item => item.product.sku === prod.sku);
+    if (existingIdx > -1) {
+      const updated = [...cart];
+      if (updated[existingIdx].quantity + 1 > prod.stock) {
+        alert("Jumlah melebihi stok fisik gudang!");
+        return;
+      }
+      updated[existingIdx].quantity += 1;
+      
+      // Auto-apply wholesale if quantity >= 10
+      if (updated[existingIdx].quantity >= 10) {
+        updated[existingIdx].selectedPriceType = 'wholesale';
+      }
+      
+      setCart(updated);
+    } else {
+      setCart([...cart, {
+        product: prod,
+        quantity: 1,
+        selectedPriceType: 'retail',
+        notes: ''
+      }]);
+    }
+  };
+
+  const stopCameraPreview = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
+    setScanningLineActive(false);
+  }, []);
+
+  const startCameraPreview = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Browser ini belum mendukung akses kamera.');
+      setScannerStatus('Kamera tidak tersedia');
+      return;
+    }
+
+    try {
+      setCameraError(null);
+      setScannerStatus('Mengakses kamera...');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraReady(true);
+      setScanningLineActive(true);
+      setScannerStatus('Arahkan kamera ke barcode');
+    } catch (error) {
+      console.error('Kamera tidak bisa dibuka:', error);
+      setCameraError('Izin kamera ditolak atau kamera tidak tersedia.');
+      setScannerStatus('Kamera tidak tersedia');
+      setScanningLineActive(false);
+    }
+  }, []);
+
+  const handleBarcodeScan = useCallback((barcodeSku: string) => {
+    const matchedProduct = products.find((p) => p.sku === barcodeSku);
+    if (matchedProduct) {
+      playBeep(soundEnabled);
+      handleAddToCart(matchedProduct, true);
+      setScanSuccessMessage(`BERHASIL DISCAN: ${matchedProduct.name}`);
+      setShowScannerModal(false);
+      stopCameraPreview();
+      setTimeout(() => setScanSuccessMessage(''), 2200);
+    } else {
+      setScannerStatus(`Barcode "${barcodeSku}" tidak ditemukan`);
+      alert(`Barcode SKU "${barcodeSku}" tidak ditemukan.`);
+    }
+  }, [products, playBeep, stopCameraPreview]);
+
+  // Adjust cart item quantity
+  const handleUpdateQty = (sku: string, delta: number) => {
+    const updated = cart.map((item) => {
+      if (item.product.sku === sku) {
+        const targetQty = item.quantity + delta;
+        if (targetQty <= 0) return null;
+        if (targetQty > item.product.stock) {
+          alert("Jumlah tidak boleh melebihi stok fisik di gudang!");
+          return item;
+        }
+        
+        let priceType = item.selectedPriceType;
+        if (targetQty >= 10) {
+          priceType = 'wholesale';
+        } else if (item.selectedPriceType === 'wholesale') {
+          priceType = 'retail';
+        }
+
+        return { ...item, quantity: targetQty, selectedPriceType: priceType };
+      }
+      return item;
+    }).filter(Boolean) as CartItem[];
+
+    setCart(updated);
+  };
+
+  // Delete from cart
+  const handleDeleteCartItem = (sku: string) => {
+    setCart(cart.filter(item => item.product.sku !== sku));
+  };
+
+  const handleToggleCartPersistence = () => {
+    const nextState = !isCartPersistenceEnabled;
+
+    if (nextState) {
+      const persistedState = readPersistedPOSState();
+      if (persistedState.cart.length > 0 || persistedState.selectedCustomerId || persistedState.discountPercent > 0 || persistedState.paymentMethod !== 'Cash') {
+        setCart(persistedState.cart);
+        const restoredCustomer = persistedState.selectedCustomerId
+          ? customers.find((customer) => customer.id === persistedState.selectedCustomerId)
+          : null;
+        if (restoredCustomer) {
+          setSelectedCustomer(restoredCustomer);
+        }
+        setDiscountPercent(persistedState.discountPercent);
+        setPaymentMethod(persistedState.paymentMethod);
+      }
+    } else {
+      clearPersistedPOSState();
+    }
+
+    setIsCartPersistenceEnabled(nextState);
+  };
+
+  // Cart Calculations
+  const getCartSubtotal = () => {
+    return cart.reduce((acc, item) => {
+      const price = item.selectedPriceType === 'retail' ? item.product.retailPrice :
+                    item.selectedPriceType === 'wholesale' ? item.product.wholesalePrice :
+                    item.product.projectPrice;
+      return acc + (price * item.quantity);
+    }, 0);
+  };
+
+  const subtotal = getCartSubtotal();
+  const ppn = subtotal * 0.11; // 11% Value Added Tax
+  const discountAmount = subtotal * (discountPercent / 100);
+  const totalAmount = subtotal + ppn - discountAmount;
+
+  // Checkout Execution
+  const handleCheckout = () => {
+    if (cart.length === 0) {
+      alert("Keranjang belanja kosong.");
+      return;
+    }
+
+    if (paymentMethod === 'Deposit') {
+      const depositBal = selectedCustomer.depositBalance || 0;
+      if (depositBal < totalAmount) {
+        alert(`Saldo deposit tidak mencukupi!\nSaldo saat ini: Rp ${depositBal.toLocaleString('id-ID')}\nTotal belanja: Rp ${totalAmount.toLocaleString('id-ID')}`);
+        return;
+      }
+    }
+
+    if (paymentMethod === 'QRIS') {
+      setShowQRISModal(true);
+      return;
+    }
+
+    executeFinalCheckout();
+  };
+
+  const executeFinalCheckout = () => {
+    // Generate Invoice ID
+    const invNumber = `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Deduct physical stocks
+    const updatedProducts = products.map((prod) => {
+      const cartItem = cart.find(item => item.product.sku === prod.sku);
+      if (cartItem) {
+        const nextStock = Math.max(0, prod.stock - cartItem.quantity);
+        let nextStatus: 'Healthy' | 'Low Stock' | 'Out of Stock' = 'Healthy';
+        if (nextStock === 0) nextStatus = 'Out of Stock';
+        else if (nextStock <= 15) nextStatus = 'Low Stock';
+
+        return {
+          ...prod,
+          stock: nextStock,
+          stockStatus: nextStatus
+        };
+      }
+      return prod;
+    });
+    onUpdateProducts(updatedProducts);
+
+    // Increment customer loyalty points (1 point per Rp 10.000 spent)
+    const pointsEarned = Math.floor(totalAmount / 10000);
+    const updatedCustomers = customers.map((cust) => {
+      if (cust.id === selectedCustomer.id) {
+        const currentDeposit = cust.depositBalance || 0;
+        const nextDeposit = paymentMethod === 'Deposit' ? Math.max(0, currentDeposit - totalAmount) : currentDeposit;
+        return {
+          ...cust,
+          points: cust.points + pointsEarned,
+          totalPurchases: cust.totalPurchases + totalAmount,
+          depositBalance: nextDeposit
+        };
+      }
+      return cust;
+    });
+    onUpdateCustomers(updatedCustomers);
+
+    // Also link to Kas Harian session (only cash payments move the physical drawer)
+    const stockQtySold = cart.reduce((acc, i) => acc + i.quantity, 0);
+    recordSale(paymentMethod === 'Cash', totalAmount, stockQtySold, invNumber);
+
+    // Register this invoice so it can be looked up later from the Retur module
+    if (onRecordSale) {
+      onRecordSale({
+        invoiceNumber: invNumber,
+        customerName: selectedCustomer.name,
+        customerId: selectedCustomer.id,
+        date: new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
+        items: cart.map((item) => ({
+          sku: item.product.sku,
+          name: item.product.name,
+          quantity: item.quantity,
+          price: item.selectedPriceType === 'retail' ? item.product.retailPrice :
+                 item.selectedPriceType === 'wholesale' ? item.product.wholesalePrice :
+                 item.product.projectPrice,
+          unit: item.product.unit
+        })),
+        total: totalAmount,
+        paymentMethod
+      });
+    }
+
+    // Save logs
+    const orderDetails = {
+      invoice: invNumber,
+      customerName: selectedCustomer.name,
+      items: [...cart],
+      subtotal,
+      ppn,
+      discount: discountAmount,
+      total: totalAmount,
+      pointsEarned,
+      paymentMethod,
+      date: new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    };
+
+    setLastOrderDetails(orderDetails);
+    setShowCheckoutReceipt(true);
+    onAddSaleToKPIs(totalAmount);
+
+    // Add activity stream event
+    onAddActivity(
+      `Penjualan POS: ${invNumber}`,
+      `Selesai untuk ${selectedCustomer.name} • ${cart.reduce((acc, i) => acc + i.quantity, 0)} barang`,
+      totalAmount,
+      'sale'
+    );
+
+    // Clear cart
+    setCart([]);
+    setDiscountPercent(0);
+    setShowQRISModal(false);
+    setMobileActiveSubTab('products');
+  };
+
+  // Trigger simulated receipt feed
+  const handlePrintReceiptSim = () => {
+    // Check if printer is active in localStorage
+    const rawPrinters = localStorage.getItem('tokku_printers');
+    let hasActivePrinter = true;
+    let connectedPrinterName = "Printer Thermal Kasir Epson (Registrasi 01)";
+    if (rawPrinters) {
+      try {
+        const parsed = JSON.parse(rawPrinters);
+        const activePr = parsed.find((p: any) => p.status === 'Active');
+        hasActivePrinter = !!activePr;
+        if (activePr) connectedPrinterName = activePr.name;
+      } catch (e) {}
+    }
+
+    if (!hasActivePrinter) {
+      alert("PENCETAKAN GAGAL:\nTidak ada printer thermal yang aktif! Silakan masuk ke tab 'Pengaturan' -> 'Printer' untuk menyambungkan printer kasir.");
+      return;
+    }
+
+    setIsPrintingAnim(true);
+    setActivePrinterName(connectedPrinterName);
+    playPrintSound(soundEnabled);
+    
+    setTimeout(() => {
+      setIsPrintingAnim(false);
+      // Trigger native print dialog for compliant design
+      window.print();
+    }, 1800);
+  };
+
+  // Keyboard listeners for POS shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        const inp = document.getElementById('barcode-search-input');
+        if (inp) inp.focus();
+      }
+      if (e.key === 'F12') {
+        e.preventDefault();
+        handleCheckout();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, paymentMethod, totalAmount, selectedCustomer]);
+
+  useEffect(() => {
+    if (!showScannerModal) {
+      stopCameraPreview();
+      return;
+    }
+
+    void startCameraPreview();
+
+    return () => {
+      stopCameraPreview();
+    };
+  }, [showScannerModal, startCameraPreview, stopCameraPreview]);
+
+  useEffect(() => {
+    if (!showScannerModal || !cameraReady || !videoRef.current || typeof window === 'undefined') {
+      return;
+    }
+
+    if (!(window as any).BarcodeDetector) {
+      setScannerStatus('Browser ini belum mendukung deteksi barcode dari kamera');
+      return;
+    }
+
+    const detector = new (window as any).BarcodeDetector({
+      formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e']
+    });
+    let cancelled = false;
+
+    const scanLoop = async () => {
+      if (cancelled || !videoRef.current || !cameraReady) return;
+
+      try {
+        const barcodes = await detector.detect(videoRef.current);
+        if (!cancelled && barcodes.length > 0) {
+          const detectedCode = barcodes[0]?.rawValue;
+          if (detectedCode) {
+            handleBarcodeScan(detectedCode);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Deteksi barcode gagal:', error);
+      }
+
+      if (!cancelled) {
+        window.setTimeout(scanLoop, 500);
+      }
+    };
+
+    void scanLoop();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraReady, handleBarcodeScan, showScannerModal]);
+
+  useEffect(() => {
+    if (!isCartPersistenceEnabled) return;
+
+    const payload: PersistedPOSState = {
+      cart,
+      selectedCustomerId: selectedCustomer.id,
+      discountPercent,
+      paymentMethod
+    };
+
+    writePersistedPOSState(payload);
+  }, [cart, discountPercent, isCartPersistenceEnabled, paymentMethod, selectedCustomer.id]);
+
+  return (
+    <div className="flex flex-col gap-4 h-[calc(100vh-140px)] relative">
+      {/* Mobile Tab Swapper (Header) */}
+      <div className="flex md:hidden bg-slate-100 p-1 rounded-xl border border-slate-200/50 w-full shrink-0">
+        <button
+          onClick={() => setMobileActiveSubTab('products')}
+          className={`flex-1 py-2.5 text-center rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+            mobileActiveSubTab === 'products' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/30 font-black' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Daftar Barang
+        </button>
+        <button
+          onClick={() => setMobileActiveSubTab('cart')}
+          className={`flex-1 py-2.5 text-center rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            mobileActiveSubTab === 'cart' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/30 font-black' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <span>Keranjang Belanja</span>
+          {cart.length > 0 && (
+            <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
+              {cart.reduce((acc, item) => acc + item.quantity, 0)}
+            </span>
+          )}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
+        {/* Left Panel: Categories & Product Grid */}
+        <div className={`lg:col-span-8 flex flex-col justify-between space-y-4 min-h-0 h-full ${mobileActiveSubTab === 'products' ? 'flex' : 'hidden lg:flex'}`}>
+        
+        {/* Search and Shortcuts Headers with Barcode scanner option */}
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white border border-gray-200 p-4 rounded-xl shadow-xs">
+          
+          {/* Scan barcode input */}
+          <div className="relative w-full sm:max-w-md flex gap-2">
+            <div className="relative flex-1 group">
+              <Barcode className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+              <input 
+                id="barcode-search-input"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Ketik nama bahan bangunan atau scan (F1)..."
+                className="w-full bg-gray-50 border-none rounded-lg pl-10 pr-12 py-2 text-xs focus:ring-2 focus:ring-blue-600/15 outline-none text-gray-900"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] bg-gray-200 text-gray-500 px-1 py-0.5 rounded font-black font-mono">F1</span>
+            </div>
+
+            {/* Quick add product button */}
+            <button
+              onClick={() => setShowAddProductModal(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer"
+              title="Tambah Barang Baru Langsung dari POS"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tambah Barang</span>
+            </button>
+
+            {/* Simulated hardware scanning button */}
+            <button
+              onClick={() => {
+                setShowScannerModal(true);
+                setScanningLineActive(true);
+              }}
+              className="px-3.5 py-2 nm-btn text-blue-600 hover:text-blue-700 flex items-center gap-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer"
+              title="Simulator Pemindai Barcode"
+            >
+              <Camera className="w-4 h-4 animate-pulse" />
+              <span>Pindai Barcode</span>
+            </button>
+          </div>
+
+          {/* Sound enable switch & Customer Selection Quick View */}
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <button
+              onClick={handleToggleCartPersistence}
+              className={`px-3 py-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                isCartPersistenceEnabled
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-600'
+              }`}
+            >
+              {isCartPersistenceEnabled ? 'Simpan Keranjang Aktif' : 'Aktifkan Simpan Keranjang'}
+            </button>
+
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className="p-2 nm-btn text-gray-500 hover:text-gray-800 rounded-lg cursor-pointer"
+              title={soundEnabled ? "Matikan Suara Beep" : "Aktifkan Suara Beep"}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4 text-blue-600" /> : <VolumeX className="w-4 h-4 text-red-500" />}
+            </button>
+
+            <div className="flex items-center gap-2 bg-blue-100/40 text-blue-800 px-3.5 py-1.5 rounded-lg border border-blue-200 text-xs font-bold">
+              <User className="w-4 h-4" />
+              <span>Pembeli: {selectedCustomer.name}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Scan successful banner feedback */}
+        <AnimatePresence>
+          {scanSuccessMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-emerald-500 text-white py-2 px-4 rounded-lg text-xs font-bold flex items-center justify-between shadow-lg"
+            >
+              <div className="flex items-center gap-2">
+                <span className="animate-ping w-2.5 h-2.5 bg-white rounded-full"></span>
+                <span>{scanSuccessMessage}</span>
+              </div>
+              <span className="text-[9px] bg-white/20 text-white px-1.5 py-0.5 rounded font-mono font-bold uppercase">BEEP!</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Category Pills Slider */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
+                selectedCategory === cat 
+                  ? 'bg-blue-100 text-blue-800 font-semibold border-l-4 border-blue-600' 
+                  : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              {categoryTranslationMap[cat] || cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Products Grid Canvas */}
+        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 pr-1">
+          {filteredProducts.map((prod) => (
+            <motion.div 
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleAddToCart(prod)}
+              key={prod.sku}
+              className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col justify-between shadow-xs hover:border-blue-600 cursor-pointer group transition-all"
+            >
+              {/* Product Thumbnail */}
+              <div className="w-full h-28 rounded-lg overflow-hidden bg-gray-50 relative border border-gray-100 mb-3">
+                <img 
+                  src={prod.image} 
+                  alt={prod.name}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  referrerPolicy="no-referrer"
+                />
+                <span className={`absolute bottom-2 left-2 px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                  prod.stockStatus === 'Healthy' ? 'bg-emerald-100 text-emerald-800' : 
+                  prod.stockStatus === 'Low Stock' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  STOK: {prod.stock}
+                </span>
+              </div>
+
+              {/* Descriptions */}
+              <div>
+                <p className="text-xs font-black text-gray-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{prod.name}</p>
+                <p className="text-[10px] text-gray-400 font-mono mt-0.5">{prod.sku}</p>
+              </div>
+
+              {/* Price Details */}
+              <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs font-black text-gray-950">Rp {prod.retailPrice.toLocaleString('id-ID')}</span>
+                <span className="text-[9px] text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded uppercase">
+                  {prod.unit}
+                </span>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      {/* Right Panel: POS Shopping Cart */}
+      <div className={`lg:col-span-4 bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col justify-between overflow-hidden min-h-0 h-full ${mobileActiveSubTab === 'cart' ? 'flex' : 'hidden lg:flex'}`}>
+        
+        {/* Customer select box */}
+        <div className="p-4 border-b border-gray-100 bg-gray-50 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1">
+              <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">PILIH PELANGGAN</label>
+              <select 
+                value={selectedCustomer.id}
+                onChange={(e) => {
+                  const match = customers.find(c => c.id === e.target.value);
+                  if (match) setSelectedCustomer(match);
+                }}
+                className="w-full bg-white border border-gray-200 rounded-lg p-2 font-bold text-xs text-gray-800 outline-none focus:ring-2 focus:ring-blue-600/15"
+              >
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <button 
+              onClick={() => {
+                setNewCustName('');
+                setNewCustLoyalty('Pelanggan Retail');
+                setShowAddCustomerModal(true);
+              }}
+              className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer mt-4"
+              title="Tambah Pelanggan Baru"
+            >
+              <UserPlus className="w-4 h-4" />
+            </button>
+          </div>
+          {selectedCustomer && (
+            <div className="flex justify-between items-center text-[10px] text-gray-500 font-extrabold bg-white/60 border border-gray-100/40 rounded-lg p-1.5 px-2">
+              <span className="flex items-center gap-1">⭐ {selectedCustomer.points || 0} Poin</span>
+              <span className="flex items-center gap-1 text-emerald-600">💰 Rp {(selectedCustomer.depositBalance || 0).toLocaleString('id-ID')}</span>
+              {selectedCustomer.currentDebt > 0 && (
+                <span className="text-red-500 font-bold">⚠️ Utang: Rp {selectedCustomer.currentDebt.toLocaleString('id-ID')}</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Shopping Cart List */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {cart.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center text-gray-400">
+              <span className="text-3xl mb-1">🛒</span>
+              <p className="font-bold text-xs uppercase tracking-wider">Keranjang Kosong</p>
+              <p className="text-[10px] text-gray-400 mt-1 max-w-[180px]">Pilih barang bangunan dari daftar kiri atau scan barcode.</p>
+            </div>
+          ) : (
+            cart.map((item) => {
+              const price = item.selectedPriceType === 'retail' ? item.product.retailPrice :
+                            item.selectedPriceType === 'wholesale' ? item.product.wholesalePrice :
+                            item.product.projectPrice;
+              const lineTotal = price * item.quantity;
+              
+              return (
+                <div key={item.product.sku} className="p-3 bg-gray-50 border border-gray-100 rounded-xl space-y-2 relative group">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-extrabold text-xs text-gray-950 truncate pr-6">{item.product.name}</p>
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">{item.product.sku}</p>
+                    </div>
+                    {/* Delete action */}
+                    <button 
+                      onClick={() => handleDeleteCartItem(item.product.sku)}
+                      className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Pricing line information */}
+                  <div className="flex justify-between items-center bg-white p-2 rounded-lg border border-gray-100 text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="font-extrabold text-gray-800">Rp {price.toLocaleString('id-ID')}</span>
+                      <span className="text-gray-400">/ {item.product.unit}</span>
+                      {item.selectedPriceType === 'wholesale' && (
+                        <span className="text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-black uppercase">
+                          Grosir Otomatis
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-black text-blue-600">Rp {lineTotal.toLocaleString('id-ID')}</span>
+                  </div>
+
+                  {/* Quantity and configuration */}
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-1 border border-gray-200 bg-white rounded-lg p-1">
+                      <button 
+                        onClick={() => handleUpdateQty(item.product.sku, -1)}
+                        className="w-6 h-6 hover:bg-gray-100 rounded flex items-center justify-center cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+                      <span className="w-8 text-center text-xs font-black text-gray-800">{item.quantity}</span>
+                      <button 
+                        onClick={() => handleUpdateQty(item.product.sku, 1)}
+                        className="w-6 h-6 hover:bg-gray-100 rounded flex items-center justify-center cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+                    </div>
+                    
+                    {/* Tier selector */}
+                    <select 
+                      value={item.selectedPriceType}
+                      onChange={(e) => {
+                        const updated = cart.map(it => it.product.sku === item.product.sku ? { ...it, selectedPriceType: e.target.value as any } : it);
+                        setCart(updated);
+                      }}
+                      className="bg-white border border-gray-200 rounded-lg p-1.5 text-[10px] font-bold text-gray-600 outline-none"
+                    >
+                      <option value="retail">Harga Eceran</option>
+                      <option value="wholesale">Harga Grosir</option>
+                      <option value="project">Harga Proyek</option>
+                    </select>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Calculations / Actions */}
+        <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-4">
+          
+          {/* Quick calculations */}
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between text-gray-500">
+              <span>Subtotal</span>
+              <span className="font-bold">Rp {subtotal.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between text-gray-500">
+              <span>Pajak (PPN 11%)</span>
+              <span className="font-bold">Rp {ppn.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between items-center text-gray-500">
+              <span className="flex items-center gap-1"><BadgePercent className="w-4 h-4 text-blue-600" /> Terapkan Diskon Promo</span>
+              <div className="flex items-center gap-1">
+                <input 
+                  type="number" 
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+                  className="w-12 bg-white border border-gray-200 rounded p-1 text-right font-bold text-xs"
+                />
+                <span>%</span>
+              </div>
+            </div>
+            <div className="flex justify-between text-blue-600 font-black text-sm pt-2.5 border-t border-gray-200">
+              <span>Total Akhir</span>
+              <span>Rp {totalAmount.toLocaleString('id-ID')}</span>
+            </div>
+          </div>
+
+          {/* Payment Toggle methods */}
+          <div className="grid grid-cols-4 gap-1.5">
+            <button
+              onClick={() => setPaymentMethod('Cash')}
+              className={`py-2 px-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-1.5 ${
+                paymentMethod === 'Cash' ? 'bg-blue-50 border-blue-600 text-blue-600 font-black' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <Coins className="w-3.5 h-3.5" />
+              <span>Tunai</span>
+            </button>
+            <button
+              onClick={() => setPaymentMethod('QRIS')}
+              className={`py-2 px-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-1.5 ${
+                paymentMethod === 'QRIS' ? 'bg-blue-50 border-blue-600 text-blue-600 font-black' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>QRIS</span>
+            </button>
+            <button
+              onClick={() => setPaymentMethod('Split')}
+              className={`py-2 px-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-1.5 ${
+                paymentMethod === 'Split' ? 'bg-blue-50 border-blue-600 text-blue-600 font-black' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Kartu / Cicil</span>
+            </button>
+            <button
+              onClick={() => setPaymentMethod('Deposit')}
+              className={`py-2 px-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-1.5 ${
+                paymentMethod === 'Deposit' ? 'bg-blue-50 border-blue-600 text-blue-600 font-black' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+              title={`Saldo Deposit: Rp ${(selectedCustomer?.depositBalance || 0).toLocaleString('id-ID')}`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Deposit</span>
+            </button>
+          </div>
+
+          {/* Checkout Button CTA */}
+          <button 
+            onClick={handleCheckout}
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-md shadow-blue-500/15 cursor-pointer transition-colors"
+          >
+            Bayar &amp; Cetak Struk (F12)
+          </button>
+        </div>
+      </div>
+    </div>
+
+      {/* Floating Bottom Cart Bar for mobile - ONLY shown when on 'products' tab and cart has items */}
+      {cart.length > 0 && mobileActiveSubTab === 'products' && (
+        <div className="fixed bottom-[74px] left-4 right-4 z-[90] md:hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-3.5 rounded-2xl flex items-center justify-between shadow-xl shadow-blue-900/30 border border-blue-500/30 animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className="flex flex-col">
+            <span className="text-[9px] text-blue-100 font-extrabold uppercase tracking-widest">
+              {cart.reduce((acc, item) => acc + item.quantity, 0)} Barang di Keranjang
+            </span>
+            <span className="text-sm font-black">
+              Rp {totalAmount.toLocaleString('id-ID')}
+            </span>
+          </div>
+          <button
+            onClick={() => setMobileActiveSubTab('cart')}
+            className="bg-white hover:bg-slate-50 text-blue-600 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm cursor-pointer transition-transform active:scale-95 flex items-center gap-1.5"
+          >
+            <span>Buka Keranjang</span>
+            <span className="text-sm font-bold">→</span>
+          </button>
+        </div>
+      )}
+
+      {/* Barcode Scanner Simulator Modal */}
+      <AnimatePresence>
+        {showScannerModal && (
+          <div className="fixed inset-0 bg-black/55 backdrop-blur-xs flex items-center justify-center z-[150] p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl max-w-lg w-full p-6 border border-gray-200 shadow-2xl relative overflow-hidden"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-blue-600" />
+                  <span className="font-extrabold text-xs uppercase tracking-widest text-blue-600">Simulasi Pemindai Barcode Laser</span>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowScannerModal(false);
+                    stopCameraPreview();
+                  }} 
+                  className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400 cursor-pointer"
+                >✕</button>
+              </div>
+
+              <div className="w-full h-48 bg-zinc-950 rounded-2xl relative flex items-center justify-center mt-4 border border-zinc-800 overflow-hidden">
+                {cameraReady ? (
+                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                ) : (
+                  <div className="text-center space-y-2 z-10">
+                    <Barcode className="w-14 h-14 text-white/40 mx-auto" />
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-mono">Menunggu kamera siap...</p>
+                  </div>
+                )}
+
+                {scanningLineActive && (
+                  <motion.div 
+                    animate={{ y: [0, 160, 0] }}
+                    transition={{ repeat: Infinity, duration: 2.2, ease: "linear" }}
+                    className="absolute left-0 right-0 h-[3px] bg-red-600 shadow-lg shadow-red-500 z-20"
+                  />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-950/10 to-transparent" />
+                {cameraError && (
+                  <div className="absolute bottom-2 left-2 right-2 rounded-lg bg-red-600/90 text-white text-[10px] font-bold px-2.5 py-2 text-center">
+                    {cameraError}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => void startCameraPreview()}
+                  className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-bold text-[10px] uppercase tracking-wider cursor-pointer"
+                >
+                  Aktifkan Kamera
+                </button>
+                <button
+                  onClick={() => {
+                    stopCameraPreview();
+                    setScannerStatus('Kamera dihentikan');
+                  }}
+                  className="flex-1 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 font-bold text-[10px] uppercase tracking-wider cursor-pointer"
+                >
+                  Hentikan
+                </button>
+              </div>
+
+              <div className="py-3 text-center">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Pilih Produk Manual (opsional)</span>
+                <div className="grid grid-cols-2 gap-2 mt-2.5 max-h-48 overflow-y-auto pr-1">
+                  {products.map((prod) => (
+                    <button
+                      key={prod.sku}
+                      onClick={() => handleBarcodeScan(prod.sku)}
+                      className="p-2.5 rounded-xl border border-gray-150 bg-gray-50 text-left hover:border-blue-600 hover:bg-blue-50/40 transition-all flex flex-col justify-between cursor-pointer group"
+                    >
+                      <div className="flex justify-between items-start w-full gap-2">
+                        <span className="font-bold text-[10px] text-gray-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{prod.name}</span>
+                        <span className="text-[8px] bg-zinc-200 text-zinc-600 font-mono px-1 rounded">{prod.unit}</span>
+                      </div>
+                      <div className="flex items-center justify-between w-full mt-2 border-t border-dashed border-gray-200 pt-1.5">
+                        <span className="font-mono text-[9px] text-gray-400 uppercase tracking-widest">{prod.sku}</span>
+                        <Play className="w-3 h-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[10px] text-gray-400 text-center px-4 leading-relaxed">
+                {scannerStatus}
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* QRIS Simulated Code Modal */}
+      <AnimatePresence>
+        {showQRISModal && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-[150] p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-sm w-full p-6 border border-gray-200 shadow-2xl max-h-[85vh] overflow-y-auto text-center space-y-4"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                <span className="font-extrabold text-xs uppercase tracking-widest text-blue-600">PEMBAYARAN QRIS OTOMATIS</span>
+                <button onClick={() => setShowQRISModal(false)} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400 cursor-pointer">✕</button>
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="font-black text-gray-800 text-sm">Pindai kode QR untuk membayar</h4>
+                <p className="text-xs text-blue-600 font-bold">Total: Rp {totalAmount.toLocaleString('id-ID')}</p>
+              </div>
+
+              {/* QR Code graphic */}
+              <div className="w-44 h-44 bg-gray-100 border border-gray-200 rounded-2xl mx-auto flex items-center justify-center relative overflow-hidden">
+                <QrCode className="w-36 h-36 text-gray-800" />
+                <div className="absolute inset-0 bg-white/5 bg-radial-gradient flex items-center justify-center"></div>
+              </div>
+
+              <p className="text-[10px] text-gray-400 max-w-[220px] mx-auto">Mensimulasikan pembayaran QRIS elektronik terintegrasi. Klik tombol otorisasi untuk menyelesaikan transaksi.</p>
+
+              <div className="pt-3 border-t border-gray-100 flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowQRISModal(false)}
+                  className="w-full py-2.5 border border-gray-200 rounded-xl font-bold text-xs hover:bg-gray-50 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="button" 
+                  onClick={executeFinalCheckout}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-md"
+                >
+                  Otorisasi Selesai
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Checkout Thermal Receipt Modal */}
+      <AnimatePresence>
+        {showCheckoutReceipt && lastOrderDetails && (
+          <div className="fixed inset-0 bg-black/55 backdrop-blur-xs flex items-center justify-center z-[150] p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-sm w-full p-6 border border-gray-200 shadow-2xl space-y-4 font-mono text-xs text-gray-700 relative overflow-hidden print:p-0 print:shadow-none print:border-none print:static"
+            >
+              
+              {/* Printing paper feed animation wrapper */}
+              <div className={`transition-all duration-500 ${isPrintingAnim ? 'animate-pulse scale-[0.99] border-t-4 border-blue-600' : ''}`}>
+                <div className="text-center border-b border-dashed border-gray-300 pb-4">
+                  <span className="text-lg font-black text-gray-900 tracking-tight block">TB SINAR MAJU ERP</span>
+                  <span className="text-[10px] text-gray-400 font-bold block uppercase mt-0.5">Suplai Material &amp; Bahan Bangunan</span>
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Jakarta Selatan, Indonesia</span>
+                  <span className="text-[10px] text-gray-400 block mt-1">Tel: +62 21-555-0199</span>
+                </div>
+
+                <div className="space-y-1.5 text-[10px] py-3">
+                  <div className="flex justify-between">
+                    <span>INVOICE:</span>
+                    <span className="font-bold text-gray-900">{lastOrderDetails.invoice}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>TANGGAL:</span>
+                    <span>{lastOrderDetails.date}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>PELANGGAN:</span>
+                    <span className="font-bold">{lastOrderDetails.customerName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>METODE:</span>
+                    <span className="font-bold uppercase text-blue-600">{lastOrderDetails.paymentMethod === 'Cash' ? 'TUNAI' : lastOrderDetails.paymentMethod}</span>
+                  </div>
+                </div>
+
+                {/* Items breaking list */}
+                <div className="border-t border-b border-dashed border-gray-300 py-3 space-y-2">
+                  {lastOrderDetails.items.map((item: any, idx: number) => {
+                    const price = item.selectedPriceType === 'retail' ? item.product.retailPrice :
+                                  item.selectedPriceType === 'wholesale' ? item.product.wholesalePrice :
+                                  item.product.projectPrice;
+                    return (
+                      <div key={idx} className="flex justify-between text-[11px]">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <p className="font-bold text-gray-900 truncate">{item.product.name}</p>
+                          <p className="text-[9px] text-gray-400 font-mono">
+                            {item.quantity} x Rp {price.toLocaleString('id-ID')} ({item.product.unit})
+                          </p>
+                        </div>
+                        <span className="font-bold text-gray-900">Rp {(price * item.quantity).toLocaleString('id-ID')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary Calculations */}
+                <div className="space-y-1 text-right text-[11px] py-3">
+                  <div className="flex justify-between">
+                    <span>SUBTOTAL:</span>
+                    <span>Rp {lastOrderDetails.subtotal.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>PAJAK (PPN 11%):</span>
+                    <span>Rp {lastOrderDetails.ppn.toLocaleString('id-ID')}</span>
+                  </div>
+                  {lastOrderDetails.discount > 0 && (
+                    <div className="flex justify-between text-red-600 font-bold">
+                      <span>DISKON PROMO:</span>
+                      <span>-Rp {lastOrderDetails.discount.toLocaleString('id-ID')}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-black text-xs text-gray-900 pt-2 border-t border-dashed border-gray-200 mt-1">
+                    <span>TOTAL AKHIR:</span>
+                    <span>Rp {lastOrderDetails.total.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+
+                {/* Loyalty Reward Information */}
+                <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center text-[10px] space-y-1 print:hidden">
+                  <p className="font-extrabold text-blue-600 flex items-center justify-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" /> POIN LOYALITAS PELANGGAN
+                  </p>
+                  <p className="text-gray-600">Pelanggan mendapatkan <span className="font-bold text-blue-600">+{lastOrderDetails.pointsEarned} poin</span> baru.</p>
+                </div>
+
+                <div className="text-center pt-3 text-[9px] text-gray-400 border-t border-dashed border-gray-200 mt-3">
+                  <p>Terima kasih telah berbelanja di TB Sinar Maju!</p>
+                  <p className="mt-1">Kasir: {lastOrderDetails.customerName === 'Pelanggan Umum' ? 'Staff Aktif' : 'Budi Santoso'}</p>
+                </div>
+              </div>
+
+              {/* Actions Footer - Hidden during print */}
+              <div className="pt-4 border-t border-gray-100 space-y-1.5 font-sans print:hidden">
+                {isPrintingAnim && activePrinterName && (
+                  <p className="text-center text-[9px] text-gray-400">Mengirim ke {activePrinterName}...</p>
+                )}
+                <div className="flex gap-2">
+                <button 
+                  onClick={handlePrintReceiptSim}
+                  disabled={isPrintingAnim}
+                  className="w-full flex items-center justify-center gap-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>{isPrintingAnim ? "Mencetak..." : "Cetak Struk"}</span>
+                </button>
+                <button 
+                  onClick={() => setShowCheckoutReceipt(false)}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer shadow-md"
+                >
+                  Selesai
+                </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* QUICK ADD PRODUCT MODAL */}
+        {showAddProductModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddProductModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-lg w-full border border-gray-200 p-6 shadow-2xl max-h-[85vh] overflow-y-auto relative z-10 space-y-4 font-sans text-xs"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                <div className="flex items-center gap-1.5 text-emerald-600">
+                  <Plus className="w-5 h-5" />
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider text-gray-800">Tambah Barang Baru ke POS</h3>
+                </div>
+                <button
+                  onClick={() => setShowAddProductModal(false)}
+                  className="p-1 hover:bg-slate-100 rounded-lg"
+                >
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateAndAddProduct} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Nama Barang</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Semen Tiga Roda"
+                      value={newProductName}
+                      onChange={(e) => setNewProductName(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">SKU</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: SEMEN-TR"
+                      value={newProductSku}
+                      onChange={(e) => setNewProductSku(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Kategori</label>
+                    <select
+                      value={newProductCategory}
+                      onChange={(e) => setNewProductCategory(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    >
+                      {categories.filter((cat) => cat !== 'Semua Kategori').map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Satuan</label>
+                    <input
+                      type="text"
+                      placeholder="pcs / zak / meter"
+                      value={newProductUnit}
+                      onChange={(e) => setNewProductUnit(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Harga Eceran</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newProductRetailPrice}
+                      onChange={(e) => setNewProductRetailPrice(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Harga Grosir</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newProductWholesalePrice}
+                      onChange={(e) => setNewProductWholesalePrice(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Harga Proyek</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newProductProjectPrice}
+                      onChange={(e) => setNewProductProjectPrice(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Stok Awal</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newProductStock}
+                      onChange={(e) => setNewProductStock(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-600/15 text-gray-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddProductModal(false)}
+                    className="flex-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 font-bold py-2 rounded-lg cursor-pointer uppercase"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-lg cursor-pointer uppercase shadow-sm"
+                  >
+                    Simpan &amp; Masukkan ke Keranjang
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* CUSTOM ADD CUSTOMER MODAL */}
+        {showAddCustomerModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddCustomerModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-sm w-full border border-gray-200 p-6 shadow-2xl max-h-[85vh] overflow-y-auto relative z-10 space-y-4 font-sans text-xs"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                <div className="flex items-center gap-1.5 text-blue-600">
+                  <UserPlus className="w-5 h-5" />
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider text-gray-800">Tambah Pelanggan Baru</h3>
+                </div>
+                <button 
+                  onClick={() => setShowAddCustomerModal(false)} 
+                  className="p-1 hover:bg-slate-100 rounded-lg"
+                >
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newCustName.trim()) return;
+
+                  const nextId = `CUST-${Math.floor(10000 + Math.random() * 90000)}`;
+                  const newC: Customer = {
+                    id: nextId,
+                    name: newCustName.trim(),
+                    loyaltyTier: newCustLoyalty,
+                    points: 100, // default sign up points!
+                    currentDebt: 0,
+                    totalPurchases: 0,
+                    debtStatus: "Cleared",
+                    logoLetters: newCustName.slice(0, 2).toUpperCase(),
+                    lastTransactions: []
+                  };
+
+                  onUpdateCustomers([newC, ...customers]);
+                  setSelectedCustomer(newC);
+                  setShowAddCustomerModal(false);
+                  
+                  onAddActivity(
+                    `Pendaftaran Pelanggan`,
+                    `Pelanggan baru "${newCustName.trim()}" berhasil didaftarkan`,
+                    0,
+                    'quote'
+                  );
+                }} 
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Nama Lengkap Pelanggan</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="Contoh: CV. Berkah Abadi, Ahmad"
+                    value={newCustName}
+                    onChange={(e) => setNewCustName(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-blue-600/15 text-gray-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">Level Loyalitas</label>
+                  <select
+                    value={newCustLoyalty}
+                    onChange={(e) => setNewCustLoyalty(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-blue-600/15 text-gray-800"
+                  >
+                    <option value="Pelanggan Retail">Pelanggan Retail Eceran</option>
+                    <option value="Platinum Member">Anggota Platinum (VIP)</option>
+                    <option value="Premium Builder">Kontraktor Utama (Premium)</option>
+                    <option value="Local Retail Builder">Pembangun Retail Lokal</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCustomerModal(false)}
+                    className="flex-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 font-bold py-2 rounded-lg cursor-pointer uppercase"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-2 rounded-lg cursor-pointer uppercase shadow-sm"
+                  >
+                    Simpan Pelanggan
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

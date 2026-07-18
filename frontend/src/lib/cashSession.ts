@@ -1,0 +1,99 @@
+import { CashSession, CashMutation } from '../types';
+
+const CURRENT_KEY = 'tokku_cash_session';
+const HISTORY_KEY = 'tokku_cash_session_history';
+
+export function getCurrentSession(): CashSession | null {
+  const raw = localStorage.getItem(CURRENT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CashSession;
+    if (parsed.status !== 'Open') return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getSessionHistory(): CashSession[] {
+  const raw = localStorage.getItem(HISTORY_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as CashSession[];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function openSession(openingBalance: number): CashSession {
+  const now = new Date();
+  const session: CashSession = {
+    id: `KAS-${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`,
+    date: now.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
+    openedAt: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+    status: 'Open',
+    openingBalance,
+    mutations: [],
+    totalInvoicesCash: 0,
+    totalStocksSoldCash: 0,
+    totalInvoicesNonCash: 0,
+  };
+  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+  return session;
+}
+
+// Adds a cash-affecting mutation to the currently open session. No-op (returns null) if no session is open.
+export function addMutation(type: 'in' | 'out', category: string, amount: number, note?: string): CashSession | null {
+  const session = getCurrentSession();
+  if (!session || amount <= 0) return null;
+
+  const mutation: CashMutation = {
+    id: `MUT-${Math.floor(10000 + Math.random() * 90000)}`,
+    type,
+    category,
+    amount,
+    note,
+    time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+  };
+  session.mutations = [mutation, ...session.mutations];
+  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+  return session;
+}
+
+// Records a completed sale for reporting purposes (cash sales affect the drawer, non-cash only affect the omzet counter).
+export function recordSale(isCash: boolean, invoiceTotal: number, stockQty: number, invoiceNumber: string) {
+  const session = getCurrentSession();
+  if (!session) return;
+
+  if (isCash) {
+    addMutation('in', 'Penjualan Tunai', invoiceTotal, `Invoice ${invoiceNumber}`);
+    session.totalInvoicesCash += 1;
+    session.totalStocksSoldCash += stockQty;
+  } else {
+    session.totalInvoicesNonCash += 1;
+  }
+  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+}
+
+export function getMutationTotals(session: CashSession) {
+  const totalIn = session.mutations.filter(m => m.type === 'in').reduce((acc, m) => acc + m.amount, 0);
+  const totalOut = session.mutations.filter(m => m.type === 'out').reduce((acc, m) => acc + m.amount, 0);
+  const systemTotal = session.openingBalance + totalIn - totalOut;
+  return { totalIn, totalOut, systemTotal };
+}
+
+export function closeSession(actualCash: number): CashSession | null {
+  const session = getCurrentSession();
+  if (!session) return null;
+
+  const now = new Date();
+  session.status = 'Closed';
+  session.closedAt = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  session.closingActual = actualCash;
+
+  const history = getSessionHistory();
+  const updatedHistory = [session, ...history];
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
+  localStorage.removeItem(CURRENT_KEY);
+  return session;
+}
