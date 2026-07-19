@@ -20,9 +20,10 @@ interface ReturViewProps {
   returns: ReturnRecord[];
   onUpdateReturns: (updatedReturns: ReturnRecord[]) => void;
   onAddActivity: (title: string, subtitle: string, amount: number, type: 'sale' | 'arrival' | 'overdue' | 'quote') => void;
+  onNavigateToPOS?: () => void;
 }
 
-export default function ReturView({ products, onUpdateProducts, salesInvoices, pos, returns, onUpdateReturns, onAddActivity }: ReturViewProps) {
+export default function ReturView({ products, onUpdateProducts, salesInvoices, pos, returns, onUpdateReturns, onAddActivity, onNavigateToPOS }: ReturViewProps) {
   const [activeTab, setActiveTab] = useState<'penjualan' | 'pembelian'>('penjualan');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -212,9 +213,21 @@ export default function ReturView({ products, onUpdateProducts, salesInvoices, p
               <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
                 {activeTab === 'penjualan' ? (
                   filteredInvoices.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-gray-400">
-                      {salesInvoices.length === 0 ? 'Belum ada transaksi penjualan yang tercatat.' : 'Tidak ada invoice yang cocok.'}
-                    </p>
+                    salesInvoices.length === 0 ? (
+                      <div className="p-6 text-center space-y-3">
+                        <p className="text-xs text-gray-400">Belum ada transaksi penjualan yang tercatat. Retur hanya bisa diajukan dari transaksi yang sudah ada.</p>
+                        {onNavigateToPOS && (
+                          <button
+                            onClick={onNavigateToPOS}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+                          >
+                            Buat Transaksi di Kasir (POS)
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="p-6 text-center text-xs text-gray-400">Tidak ada invoice yang cocok.</p>
+                    )
                   ) : (
                     filteredInvoices.map((inv) => (
                       <button

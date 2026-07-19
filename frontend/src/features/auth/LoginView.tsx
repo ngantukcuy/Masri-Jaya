@@ -12,6 +12,7 @@ import {
   Users,
   ShieldAlert
 } from 'lucide-react';
+import { useFirestoreState } from '../../lib/useFirestoreState';
 
 interface Staff {
   id: string;
@@ -25,6 +26,9 @@ interface LoginViewProps {
 }
 
 export default function LoginView({ onLoginSuccess }: LoginViewProps) {
+  const [registeredOwner, setRegisteredOwner] = useFirestoreState<{ storeName: string; ownerName: string; email: string; pin: string } | null>('registeredOwner', null);
+  const [staffList, setStaffList] = useFirestoreState<Staff[]>('staffList', []);
+
   const [isRegistered, setIsRegistered] = useState(false);
   const [storeName, setStoreName] = useState('');
   const [ownerName, setOwnerName] = useState('');
@@ -32,39 +36,27 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [ownerPin, setOwnerPin] = useState('');
   
   // Login states
-  const [staffList, setStaffList] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Load registration status
+  // React to the registered-owner / staff-list Firestore docs as they load or change
   useEffect(() => {
-    const storedOwner = localStorage.getItem('tokku_registered_owner');
-    const storedStaff = localStorage.getItem('tokku_staff_list');
-    
-    if (storedOwner) {
+    if (registeredOwner) {
       setIsRegistered(true);
-      const ownerData = JSON.parse(storedOwner);
-      setStoreName(ownerData.storeName);
-      setOwnerName(ownerData.ownerName);
-      
-      if (storedStaff) {
-        setStaffList(JSON.parse(storedStaff));
-      } else {
-        // Initial staff list only has owner
+      setStoreName(registeredOwner.storeName);
+      setOwnerName(registeredOwner.ownerName);
+
+      if (staffList.length === 0) {
+        // Registered but no staff yet (shouldn't normally happen) — seed owner as first staff
         const initialList: Staff[] = [
-          {
-            id: 'owner-01',
-            name: ownerData.ownerName + ' (Owner)',
-            pin: ownerData.pin,
-            role: 'owner'
-          }
+          { id: 'owner-01', name: registeredOwner.ownerName + ' (Owner)', pin: registeredOwner.pin, role: 'owner' }
         ];
-        localStorage.setItem('tokku_staff_list', JSON.stringify(initialList));
         setStaffList(initialList);
       }
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registeredOwner]);
 
   // Handle first-time registration
   const handleRegister = (e: React.FormEvent) => {
@@ -90,10 +82,9 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
       }
     ];
 
-    localStorage.setItem('tokku_registered_owner', JSON.stringify(ownerData));
-    localStorage.setItem('tokku_staff_list', JSON.stringify(initialList));
-    
+    setRegisteredOwner(ownerData);
     setStaffList(initialList);
+    
     setIsRegistered(true);
     alert("Registrasi Toko Berhasil! Silakan pilih akun dan masukkan PIN Anda.");
   };
@@ -279,13 +270,13 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
                       onClick={() => {
                         const conf = window.confirm("Apakah Anda yakin ingin mereset data registrasi toko? Ini akan menghapus semua kredensial.");
                         if (conf) {
-                          localStorage.clear();
+                          setRegisteredOwner(null);
+                          setStaffList([]);
                           setIsRegistered(false);
                           setStoreName('');
                           setOwnerName('');
                           setEmail('');
                           setOwnerPin('');
-                          setStaffList([]);
                         }
                       }}
                       className="text-[9px] font-bold text-red-500 uppercase tracking-widest hover:underline"

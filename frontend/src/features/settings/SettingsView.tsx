@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Branch, StoreProfile, StaffMember, BankAccount, SkuLocation } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { useFirestoreState } from '../../lib/useFirestoreState';
 
 interface SettingsViewProps {
   branches: Branch[];
@@ -95,7 +96,7 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
       Minggu: { open: '08:00', close: '17:00', status: 'Open' as const }
     }
   });
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankAccounts, setBankAccounts] = useFirestoreState<BankAccount[]>('bankAccounts', []);
   const [newBankAccount, setNewBankAccount] = useState({ name: '', type: 'Bank' as BankAccount['type'], accountNumber: '', holderName: '', notes: '' });
 
   // SKU Location (Lokasi Penyimpanan) form state - list itself is lifted to App level
@@ -118,81 +119,32 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
   const [newStaffPin, setNewStaffPin] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<'Owner' | 'Admin' | 'Kasir' | 'Stoker'>('Kasir');
   const [newStaffPermissions, setNewStaffPermissions] = useState<string[]>(ROLE_DEFAULT_PERMISSIONS['Kasir']);
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [staffList, setStaffList] = useFirestoreState<StaffMember[]>('staffList', [
+    { id: 'staff-01', name: 'Budi Santoso', phone: '081234567890', pin: '1234', role: 'Kasir', permissions: ROLE_DEFAULT_PERMISSIONS.Kasir },
+    { id: 'staff-02', name: 'Hendi Pratama', phone: '081234567891', pin: '5678', role: 'Admin', permissions: ROLE_DEFAULT_PERMISSIONS.Admin }
+  ]);
 
   // Printers state
-  const [printers, setPrinters] = useState([
+  const [printers, setPrinters] = useFirestoreState('printers', [
     { name: "Printer Thermal Kasir Epson (Registrasi 01)", status: "Active", ip: "192.168.1.120" },
     { name: "Printer Label Star Micronics (Gudang)", status: "Offline", ip: "192.168.1.125" }
   ]);
 
-  // Load staff list from localStorage
+  // Registered owner record (same Firestore doc used by LoginView for first-time registration)
+  const [registeredOwner, setRegisteredOwner] = useFirestoreState<{ storeName: string; ownerName: string; email: string; pin: string; taxId?: string; address?: string; phone?: string; receiptNote?: string } | null>('registeredOwner', null);
+
+  // Sync derived profile fields whenever the registered-owner record changes
   useEffect(() => {
-    const rawStaff = localStorage.getItem('tokku_staff_list');
-    if (rawStaff) {
-      try {
-        const parsed = JSON.parse(rawStaff);
-        const normalized: StaffMember[] = parsed.map((s: any) => ({
-          id: s.id || `staff-${Math.random().toString(36).slice(2,8)}`,
-          name: s.name,
-          phone: s.phone || '',
-          pin: s.pin,
-          role: (s.role || 'Kasir') as StaffMember['role'],
-          permissions: s.permissions || ROLE_DEFAULT_PERMISSIONS[(s.role || 'Kasir') as 'Owner' | 'Admin' | 'Kasir' | 'Stoker']
-        }));
-        setStaffList(normalized);
-      } catch (e) {
-        // Fallback default staff
-        const defaults: StaffMember[] = [
-          { id: 'staff-01', name: 'Budi Santoso', phone: '081234567890', pin: '1234', role: 'Kasir', permissions: ROLE_DEFAULT_PERMISSIONS.Kasir },
-          { id: 'staff-02', name: 'Hendi Pratama', phone: '081234567891', pin: '5678', role: 'Admin', permissions: ROLE_DEFAULT_PERMISSIONS.Admin }
-        ];
-        setStaffList(defaults);
-        localStorage.setItem('tokku_staff_list', JSON.stringify(defaults));
+    if (registeredOwner) {
+      if (registeredOwner.storeName) {
+        setCompanyName(registeredOwner.storeName);
+        setStoreProfile((prev) => ({ ...prev, storeName: registeredOwner.storeName, ownerName: registeredOwner.ownerName || prev.ownerName, email: registeredOwner.email || prev.email, pin: registeredOwner.pin || prev.pin }));
       }
-    } else {
-      const defaults: StaffMember[] = [
-        { id: 'staff-01', name: 'Budi Santoso', phone: '081234567890', pin: '1234', role: 'Kasir', permissions: ROLE_DEFAULT_PERMISSIONS.Kasir },
-        { id: 'staff-02', name: 'Hendi Pratama', phone: '081234567891', pin: '5678', role: 'Admin', permissions: ROLE_DEFAULT_PERMISSIONS.Admin }
-      ];
-      setStaffList(defaults);
-      localStorage.setItem('tokku_staff_list', JSON.stringify(defaults));
+      if (registeredOwner.email) setEmail(registeredOwner.email);
+      if (registeredOwner.pin) setOwnerPin(registeredOwner.pin);
     }
-
-    // Load registered owner company name if present
-    const rawOwner = localStorage.getItem('tokku_registered_owner');
-    if (rawOwner) {
-      try {
-        const parsed = JSON.parse(rawOwner);
-        if (parsed.storeName) {
-          setCompanyName(parsed.storeName);
-          setStoreProfile((prev) => ({ ...prev, storeName: parsed.storeName, ownerName: parsed.ownerName || prev.ownerName, email: parsed.email || prev.email, pin: parsed.pin || prev.pin }));
-        }
-        if (parsed.email) setEmail(parsed.email);
-        if (parsed.pin) setOwnerPin(parsed.pin);
-      } catch(e){}
-    }
-
-    const rawBankAccounts = localStorage.getItem('tokku_bank_accounts');
-    if (rawBankAccounts) {
-      try {
-        setBankAccounts(JSON.parse(rawBankAccounts));
-      } catch (e) {}
-    }
-
-    // Load printers status
-    const rawPrinters = localStorage.getItem('tokku_printers');
-    if (rawPrinters) {
-      try {
-        setPrinters(JSON.parse(rawPrinters));
-      } catch (e) {}
-    } else {
-      localStorage.setItem('tokku_printers', JSON.stringify([
-        { name: "Printer Thermal Kasir Epson (Registrasi 01)", status: "Active", ip: "192.168.1.120" },
-        { name: "Printer Label Star Micronics (Gudang)", status: "Offline", ip: "192.168.1.125" }
-      ]));
-    }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registeredOwner]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -298,20 +250,16 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
     };
     setStoreProfile(nextStoreProfile);
 
-    const rawOwner = localStorage.getItem('tokku_registered_owner');
-    if (rawOwner) {
-      try {
-        const parsed = JSON.parse(rawOwner);
-        parsed.storeName = companyName;
-        parsed.email = email;
-        parsed.pin = ownerPin;
-        parsed.taxId = taxId;
-        parsed.address = storeProfile.address;
-        parsed.phone = storeProfile.phone;
-        parsed.receiptNote = storeProfile.receiptNote;
-        localStorage.setItem('tokku_registered_owner', JSON.stringify(parsed));
-      } catch(e){}
-    }
+    setRegisteredOwner((prev) => prev ? {
+      ...prev,
+      storeName: companyName,
+      email,
+      pin: ownerPin,
+      taxId,
+      address: storeProfile.address,
+      phone: storeProfile.phone,
+      receiptNote: storeProfile.receiptNote
+    } : prev);
 
     triggerToast("Profil Bisnis berhasil disimpan ke database!");
     onAddActivity(
@@ -335,7 +283,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
 
     const updated = [...staffList, { id: `staff-${Date.now()}`, name: newStaffName.trim(), phone: newStaffPhone.trim(), pin: newStaffPin, role: newStaffRole, permissions: newStaffPermissions }];
     setStaffList(updated);
-    localStorage.setItem('tokku_staff_list', JSON.stringify(updated));
 
     triggerToast(`Akun Staf "${newStaffName}" berhasil didaftarkan!`);
     onAddActivity(
@@ -365,7 +312,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
     if (confirm) {
       const updated = staffList.filter((_, idx) => idx !== idxToDelete);
       setStaffList(updated);
-      localStorage.setItem('tokku_staff_list', JSON.stringify(updated));
       triggerToast(`Akun Staf "${staffName}" telah dihapus.`);
     }
   };
@@ -420,7 +366,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
     };
     const updated = [...bankAccounts, account];
     setBankAccounts(updated);
-    localStorage.setItem('tokku_bank_accounts', JSON.stringify(updated));
     setNewBankAccount({ name: '', type: 'Bank', accountNumber: '', holderName: '', notes: '' });
     triggerToast(`Rekening "${account.name}" berhasil ditambahkan.`);
   };
@@ -428,7 +373,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
   const handleDeleteBankAccount = (id: string) => {
     const updated = bankAccounts.filter((account) => account.id !== id);
     setBankAccounts(updated);
-    localStorage.setItem('tokku_bank_accounts', JSON.stringify(updated));
     triggerToast('Rekening berhasil dihapus.');
   };
 
@@ -446,7 +390,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
     const updated = [...printers];
     updated[idx].status = updated[idx].status === 'Active' ? 'Offline' : 'Active';
     setPrinters(updated);
-    localStorage.setItem('tokku_printers', JSON.stringify(updated));
     triggerToast(`Koneksi hardware ${updated[idx].name} diperbarui ke ${updated[idx].status === 'Active' ? 'AKTIF' : 'OFFLINE'}`);
   };
 
@@ -835,7 +778,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
                   const newPr = { name, status: "Offline", ip };
                   const updated = [...printers, newPr];
                   setPrinters(updated);
-                  localStorage.setItem('tokku_printers', JSON.stringify(updated));
                   triggerToast(`Printer Baru Terdaftar: ${name}`);
                 }}
                 className="flex items-center gap-1 bg-blue-100/70 text-blue-800 text-xs font-bold px-2.5 py-1 rounded hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
@@ -879,7 +821,6 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
                         if (window.confirm(`Apakah Anda yakin ingin menghapus printer ${pr.name}?`)) {
                           const updated = printers.filter((_, idx) => idx !== pIdx);
                           setPrinters(updated);
-                          localStorage.setItem('tokku_printers', JSON.stringify(updated));
                           triggerToast(`Printer dihapus: ${pr.name}`);
                         }
                       }}
@@ -979,14 +920,7 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
                         alert("PIN Owner harus berisi 4 digit angka!");
                         return;
                       }
-                      const rawOwner = localStorage.getItem('tokku_registered_owner');
-                      if (rawOwner) {
-                        try {
-                          const parsed = JSON.parse(rawOwner);
-                          parsed.pin = ownerPin;
-                          localStorage.setItem('tokku_registered_owner', JSON.stringify(parsed));
-                        } catch(e){}
-                      }
+                      setRegisteredOwner((prev) => prev ? { ...prev, pin: ownerPin } : prev);
                       triggerToast("PIN Utama Owner berhasil dimodifikasi.");
                     }}
                     className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg cursor-pointer"

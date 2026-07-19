@@ -36,29 +36,51 @@ import {
   initialSkuLocations
 } from './data/mockData';
 import { Product, PO, Customer, Expense, Activity, Branch, Supplier, SalesInvoice, ReturnRecord, DigitalOrder, Banner, SkuLocation } from './types';
+import { useFirestoreState } from './lib/useFirestoreState';
+import { useFirebaseReady } from './lib/useFirebaseReady';
 
 export default function App() {
+  const firebaseReady = useFirebaseReady();
+
+  // Wait for anonymous auth before mounting anything that reads/writes
+  // Firestore (see useFirestoreState) — avoids a permission-denied flash
+  // on first load.
+  if (!firebaseReady) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="text-center space-y-2">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Menyambungkan ke database...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppShell />;
+}
+
+function AppShell() {
   // State management
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string } | null>(null);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [pos, setPOs] = useState<PO[]>(initialPOs);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
-  const [activities, setActivities] = useState<Activity[]>(initialActivities);
-  const [branches, setBranches] = useState<Branch[]>(initialBranches);
-  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>(initialSalesInvoices);
-  const [returns, setReturns] = useState<ReturnRecord[]>(initialReturns);
-  const [digitalOrders, setDigitalOrders] = useState<DigitalOrder[]>(initialDigitalOrders);
-  const [banners, setBanners] = useState<Banner[]>(initialBanners);
-  const [skuLocations, setSkuLocations] = useState<SkuLocation[]>(initialSkuLocations);
-  const [ecommerceUsername, setEcommerceUsername] = useState<string>('');
+  const [products, setProducts] = useFirestoreState<Product[]>('products', initialProducts);
+  const [pos, setPOs] = useFirestoreState<PO[]>('purchaseOrders', initialPOs);
+  const [customers, setCustomers] = useFirestoreState<Customer[]>('customers', initialCustomers);
+  const [suppliers, setSuppliers] = useFirestoreState<Supplier[]>('suppliers', initialSuppliers);
+  const [expenses, setExpenses] = useFirestoreState<Expense[]>('expenses', initialExpenses);
+  const [activities, setActivities] = useFirestoreState<Activity[]>('activities', initialActivities);
+  const [branches, setBranches] = useFirestoreState<Branch[]>('branches', initialBranches);
+  const [salesInvoices, setSalesInvoices] = useFirestoreState<SalesInvoice[]>('salesInvoices', initialSalesInvoices);
+  const [returns, setReturns] = useFirestoreState<ReturnRecord[]>('returns', initialReturns);
+  const [digitalOrders, setDigitalOrders] = useFirestoreState<DigitalOrder[]>('digitalOrders', initialDigitalOrders);
+  const [banners, setBanners] = useFirestoreState<Banner[]>('banners', initialBanners);
+  const [skuLocations, setSkuLocations] = useFirestoreState<SkuLocation[]>('skuLocations', initialSkuLocations);
+  const [ecommerceUsername, setEcommerceUsername] = useFirestoreState<string>('ecommerceUsername', '');
 
   // Dynamic metrics added from POS checkout
-  const [totalSales, setTotalSales] = useState<number>(0);
-  const [totalOrdersCount, setTotalOrdersCount] = useState<number>(0);
+  const [totalSales, setTotalSales] = useFirestoreState<number>('totalSales', 0);
+  const [totalOrdersCount, setTotalOrdersCount] = useFirestoreState<number>('totalOrdersCount', 0);
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,6 +188,7 @@ export default function App() {
                     returns={returns}
                     onUpdateReturns={setReturns}
                     onAddActivity={handleAddActivity}
+                    onNavigateToPOS={() => setCurrentTab('pos')}
                   />
                 );
               case 'toko-digital':

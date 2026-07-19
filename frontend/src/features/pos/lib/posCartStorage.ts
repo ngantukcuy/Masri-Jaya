@@ -1,4 +1,5 @@
 import { Product } from '../../../types';
+import { getFirestoreCache, setFirestoreCache } from '../../../lib/firestoreCache';
 
 export interface CartItem {
   product: Product;
@@ -14,7 +15,7 @@ export type PersistedPOSState = {
   paymentMethod: 'Cash' | 'QRIS' | 'Split' | 'Deposit';
 };
 
-export const POS_CART_STORAGE_KEY = 'tokku_pos_cart_state';
+export const POS_CART_STORAGE_KEY = 'posCartState';
 
 const emptyState = (): PersistedPOSState => ({
   cart: [],
@@ -24,37 +25,21 @@ const emptyState = (): PersistedPOSState => ({
 });
 
 export const readPersistedPOSState = (): PersistedPOSState => {
-  if (typeof window === 'undefined') {
-    return emptyState();
-  }
-
-  try {
-    const raw = window.localStorage.getItem(POS_CART_STORAGE_KEY);
-    if (!raw) {
-      return emptyState();
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PersistedPOSState>;
-    return {
-      cart: Array.isArray(parsed.cart) ? parsed.cart : [],
-      selectedCustomerId: typeof parsed.selectedCustomerId === 'string' ? parsed.selectedCustomerId : null,
-      discountPercent: typeof parsed.discountPercent === 'number' ? parsed.discountPercent : 0,
-      paymentMethod: parsed.paymentMethod === 'QRIS' || parsed.paymentMethod === 'Split' || parsed.paymentMethod === 'Deposit'
-        ? parsed.paymentMethod
-        : 'Cash'
-    };
-  } catch (error) {
-    console.warn('Gagal membaca state POS dari penyimpanan:', error);
-    return emptyState();
-  }
+  const parsed = getFirestoreCache<Partial<PersistedPOSState>>(POS_CART_STORAGE_KEY, emptyState());
+  return {
+    cart: Array.isArray(parsed.cart) ? parsed.cart : [],
+    selectedCustomerId: typeof parsed.selectedCustomerId === 'string' ? parsed.selectedCustomerId : null,
+    discountPercent: typeof parsed.discountPercent === 'number' ? parsed.discountPercent : 0,
+    paymentMethod: parsed.paymentMethod === 'QRIS' || parsed.paymentMethod === 'Split' || parsed.paymentMethod === 'Deposit'
+      ? parsed.paymentMethod
+      : 'Cash'
+  };
 };
 
 export const writePersistedPOSState = (state: PersistedPOSState) => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(state));
+  setFirestoreCache(POS_CART_STORAGE_KEY, state);
 };
 
 export const clearPersistedPOSState = () => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(POS_CART_STORAGE_KEY);
+  setFirestoreCache(POS_CART_STORAGE_KEY, emptyState());
 };

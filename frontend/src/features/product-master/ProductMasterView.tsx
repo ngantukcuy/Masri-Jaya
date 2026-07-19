@@ -13,6 +13,7 @@ import {
   ImagePlus
 } from 'lucide-react';
 import { Product, Bundle, BundleItem, SkuLocation } from '../../types';
+import { useFirestoreState } from '../../lib/useFirestoreState';
 
 interface CategoryEntry {
   id: string;
@@ -34,27 +35,8 @@ interface ProductMasterViewProps {
 }
 
 function useLocalList<T extends { id: string }>(key: string, defaults: T[]) {
-  const [list, setList] = useState<T[]>([]);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      try {
-        setList(JSON.parse(raw));
-        return;
-      } catch (e) {}
-    }
-    setList(defaults);
-    localStorage.setItem(key, JSON.stringify(defaults));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const persist = (updated: T[]) => {
-    setList(updated);
-    localStorage.setItem(key, JSON.stringify(updated));
-  };
-
-  return { list, persist };
+  const [list, setList] = useFirestoreState<T[]>(key, defaults);
+  return { list, persist: setList };
 }
 
 export default function ProductMasterView({ products, onAddActivity, onUpdateProducts, skuLocations = [], initialTab }: ProductMasterViewProps) {

@@ -1,28 +1,17 @@
 import { CashSession, CashMutation } from '../types';
+import { getFirestoreCache, setFirestoreCache } from './firestoreCache';
 
-const CURRENT_KEY = 'tokku_cash_session';
-const HISTORY_KEY = 'tokku_cash_session_history';
+const CURRENT_KEY = 'cashSessionCurrent';
+const HISTORY_KEY = 'cashSessionHistory';
 
 export function getCurrentSession(): CashSession | null {
-  const raw = localStorage.getItem(CURRENT_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as CashSession;
-    if (parsed.status !== 'Open') return null;
-    return parsed;
-  } catch (e) {
-    return null;
-  }
+  const cached = getFirestoreCache<CashSession | null>(CURRENT_KEY, null);
+  if (!cached || cached.status !== 'Open') return null;
+  return cached;
 }
 
 export function getSessionHistory(): CashSession[] {
-  const raw = localStorage.getItem(HISTORY_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as CashSession[];
-  } catch (e) {
-    return [];
-  }
+  return getFirestoreCache<CashSession[]>(HISTORY_KEY, []);
 }
 
 export function openSession(openingBalance: number): CashSession {
@@ -38,7 +27,7 @@ export function openSession(openingBalance: number): CashSession {
     totalStocksSoldCash: 0,
     totalInvoicesNonCash: 0,
   };
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+  setFirestoreCache(CURRENT_KEY, session);
   return session;
 }
 
@@ -56,7 +45,7 @@ export function addMutation(type: 'in' | 'out', category: string, amount: number
     time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
   };
   session.mutations = [mutation, ...session.mutations];
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+  setFirestoreCache(CURRENT_KEY, session);
   return session;
 }
 
@@ -72,7 +61,7 @@ export function recordSale(isCash: boolean, invoiceTotal: number, stockQty: numb
   } else {
     session.totalInvoicesNonCash += 1;
   }
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(session));
+  setFirestoreCache(CURRENT_KEY, session);
 }
 
 export function getMutationTotals(session: CashSession) {
@@ -93,7 +82,7 @@ export function closeSession(actualCash: number): CashSession | null {
 
   const history = getSessionHistory();
   const updatedHistory = [session, ...history];
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
-  localStorage.removeItem(CURRENT_KEY);
+  setFirestoreCache(HISTORY_KEY, updatedHistory);
+  setFirestoreCache(CURRENT_KEY, null);
   return session;
 }

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Product } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { useFirestoreState } from '../../lib/useFirestoreState';
 
 interface ProductsViewProps {
   products: Product[];
@@ -54,42 +55,34 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
   const [adjustNotes, setAdjustNotes] = useState('');
   const [adjustDirectApply, setAdjustDirectApply] = useState(false);
 
-  const [opnameSubmissions, setOpnameSubmissions] = useState<any[]>(() => {
-    const raw = localStorage.getItem('tokku_opname_submissions');
-    if (raw) {
-      try { return JSON.parse(raw); } catch (e) {}
+  const opnameDefaults = [
+    {
+      id: "OPN-9901",
+      productSku: products[0]?.sku || "SKU-209841",
+      productName: products[0]?.name || "Semen Portland Dynamix 50kg",
+      type: 'remove',
+      amount: 5,
+      notes: "Sack semen rusak robek saat pemindahan fork-lift",
+      submittedBy: "Hendi Pratama (Staff)",
+      date: "2026-07-16 10:30",
+      status: 'Pending'
+    },
+    {
+      id: "OPN-9902",
+      productSku: products[1]?.sku || "SKU-774029",
+      productName: products[1]?.name || "Besi Beton Polos 12mm x 12m",
+      type: 'add',
+      amount: 8,
+      notes: "Lebih hitung fisik setelah bongkar muat kontainer",
+      submittedBy: "Budi Santoso (Admin)",
+      date: "2026-07-16 11:15",
+      status: 'Pending'
     }
-    const defaults = [
-      {
-        id: "OPN-9901",
-        productSku: products[0]?.sku || "SKU-209841",
-        productName: products[0]?.name || "Semen Portland Dynamix 50kg",
-        type: 'remove',
-        amount: 5,
-        notes: "Sack semen rusak robek saat pemindahan fork-lift",
-        submittedBy: "Hendi Pratama (Staff)",
-        date: "2026-07-16 10:30",
-        status: 'Pending'
-      },
-      {
-        id: "OPN-9902",
-        productSku: products[1]?.sku || "SKU-774029",
-        productName: products[1]?.name || "Besi Beton Polos 12mm x 12m",
-        type: 'add',
-        amount: 8,
-        notes: "Lebih hitung fisik setelah bongkar muat kontainer",
-        submittedBy: "Budi Santoso (Admin)",
-        date: "2026-07-16 11:15",
-        status: 'Pending'
-      }
-    ];
-    localStorage.setItem('tokku_opname_submissions', JSON.stringify(defaults));
-    return defaults;
-  });
+  ];
+  const [opnameSubmissions, setOpnameSubmissions] = useFirestoreState<any[]>('opnameSubmissions', opnameDefaults);
 
   const saveSubmissions = (subs: any[]) => {
     setOpnameSubmissions(subs);
-    localStorage.setItem('tokku_opname_submissions', JSON.stringify(subs));
   };
 
   // Map category displays to Indonesian

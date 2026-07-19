@@ -16,6 +16,7 @@ import {
 import { Customer } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { addMutation } from '../../lib/cashSession';
+import { getFirestoreCache } from '../../lib/firestoreCache';
 
 interface DebtsViewProps {
   customers: Customer[];
@@ -196,16 +197,11 @@ export default function DebtsView({
 
   const simulatePrint = () => {
     setIsPrinting(true);
-    // Try to check local storage printer status
-    const rawPrinters = localStorage.getItem('tokku_printers');
+    // Check cached printer status (synced from Firestore, see lib/firestoreCache.ts)
+    const cachedPrinters = getFirestoreCache<any[]>('printers', []);
     let connectedPrinterName = "Printer Thermal Epson (Aktif)";
-    if (rawPrinters) {
-      try {
-        const parsed = JSON.parse(rawPrinters);
-        const activePr = parsed.find((p: any) => p.status === 'Active');
-        if (activePr) connectedPrinterName = activePr.name;
-      } catch (e) {}
-    }
+    const activePr = cachedPrinters.find((p: any) => p.status === 'Active');
+    if (activePr) connectedPrinterName = activePr.name;
 
     triggerToast(`Mengirim ke ${connectedPrinterName}...`);
     setTimeout(() => {
