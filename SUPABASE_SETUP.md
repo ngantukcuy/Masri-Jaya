@@ -88,6 +88,27 @@ login/registrasi toko, daftar staff, rekening bank, printer, hasil stock
 opname, kategori/brand/satuan/bundle produk, sesi kas harian, dan draft
 keranjang POS.
 
+## 8. Build untuk Production / Deploy
+
+```bash
+npm run build    # hasilnya di frontend/dist
+npm run preview  # buat cek hasil build itu secara lokal
+```
+
+**Penting soal `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY`:** beda
+dengan `npm run dev` (yang baca ulang `frontend/.env` setiap kali dev server
+di-start), `npm run build` men-"bake" nilai env var itu langsung jadi teks di
+dalam file JS hasil build — bukan dibaca ulang oleh browser tiap halaman
+dibuka. Dua akibatnya:
+
+- Kalau kamu ubah `.env` **setelah** build terakhir, hasil build yang lama
+  tetap pakai nilai lama (atau kosong). Harus `npm run build` ulang.
+- Kalau kamu deploy ke hosting (Vercel, Netlify, cPanel, dst) langsung dari
+  Git, `.env` **tidak ikut ter-upload** (memang sengaja di-`.gitignore`).
+  Env var-nya harus diisi manual di dashboard hosting itu (biasanya di
+  bagian *Environment Variables* pengaturan project), baru trigger build di
+  sana — bukan cukup ada di `.env` lokal kamu.
+
 ## Struktur Data
 
 Setiap "tabel" (products, customers, salesInvoices, dst) disimpan sebagai
@@ -108,8 +129,15 @@ Changes), pengganti langsung dari `onSnapshot` Firestore.
   langkah 3 (Anonymous sign-in belum aktif) atau pastikan `schema.sql` di
   langkah 2 udah selesai jalan tanpa error (termasuk bagian `grant` di
   paling bawah).
-- **`VITE_SUPABASE_URL kosong`** di console → file `.env` belum
-  dibuat/diisi, atau lupa restart `npm run dev` setelah bikin/ubah `.env`.
+- **`VITE_SUPABASE_URL kosong`** di console pas `npm run dev` → file `.env`
+  belum dibuat/diisi, atau lupa restart `npm run dev` setelah bikin/ubah
+  `.env`.
+- **Muncul error "Konfigurasi Supabase belum lengkap" di Chrome, padahal
+  `npm run dev` di lokal baik-baik saja** → itu tandanya kamu lagi buka hasil
+  `npm run build` (lewat `npm run preview`, atau lewat hosting) yang
+  di-build SEBELUM `.env` terisi. `.env` cuma dipakai saat proses build
+  jalan, bukan dibaca lagi setelahnya — lihat bagian "Build untuk
+  Production / Deploy" di atas buat cara betulinnya.
 - **Data gak muncul-muncul** → di dashboard, buka **Table Editor >
   tokku_state**, harusnya ada baris dengan `key` = `products`, `customers`,
   dst. Kalau kosong total, kemungkinan step 2 belum jalan atau anonymous
