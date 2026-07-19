@@ -6,25 +6,41 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 
+const readEnvValue = (key: string) =>
+  String(import.meta.env[key] ?? '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .replace(/,$/, '');
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: readEnvValue('VITE_FIREBASE_API_KEY'),
+  authDomain: readEnvValue('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: readEnvValue('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: readEnvValue('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: readEnvValue('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: readEnvValue('VITE_FIREBASE_APP_ID'),
 };
 
-if (!firebaseConfig.projectId) {
-  // Loud warning instead of a silent crash — this is the #1 setup mistake
-  // (forgetting to create frontend/.env from .env.example).
-  console.warn(
-    '[firebase] VITE_FIREBASE_PROJECT_ID kosong. Cek apakah file frontend/.env sudah dibuat dari .env.example dan berisi config Firebase kamu, lalu restart `npm run dev`.'
+const requiredConfigKeys = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
+const missingConfig = requiredConfigKeys.filter((key) => !firebaseConfig[key]);
+
+if (missingConfig.length) {
+  console.error(
+    `[firebase] Konfigurasi Firebase belum lengkap (${missingConfig.join(', ')}). Cek file frontend/.env, pastikan nilainya benar, lalu restart npm run dev.`
   );
 }
 
 // Reuse existing app instance during Vite HMR instead of re-initializing.
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const app =
+  getApps().length || missingConfig.length
+    ? getApps().length
+      ? getApp()
+      : (() => {
+          throw new Error(
+            `[firebase] Firebase tidak bisa diinisialisasi karena konfigurasi belum lengkap.`
+          );
+        })()
+    : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
