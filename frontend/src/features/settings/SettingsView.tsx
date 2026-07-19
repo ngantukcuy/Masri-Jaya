@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Branch, StoreProfile, StaffMember, BankAccount, SkuLocation } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { useFirestoreState } from '../../lib/useFirestoreState';
+import { useSupabaseState } from '../../lib/useSupabaseState';
 
 interface SettingsViewProps {
   branches: Branch[];
@@ -96,7 +96,7 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
       Minggu: { open: '08:00', close: '17:00', status: 'Open' as const }
     }
   });
-  const [bankAccounts, setBankAccounts] = useFirestoreState<BankAccount[]>('bankAccounts', []);
+  const [bankAccounts, setBankAccounts] = useSupabaseState<BankAccount[]>('bankAccounts', []);
   const [newBankAccount, setNewBankAccount] = useState({ name: '', type: 'Bank' as BankAccount['type'], accountNumber: '', holderName: '', notes: '' });
 
   // SKU Location (Lokasi Penyimpanan) form state - list itself is lifted to App level
@@ -119,19 +119,19 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
   const [newStaffPin, setNewStaffPin] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<'Owner' | 'Admin' | 'Kasir' | 'Stoker'>('Kasir');
   const [newStaffPermissions, setNewStaffPermissions] = useState<string[]>(ROLE_DEFAULT_PERMISSIONS['Kasir']);
-  const [staffList, setStaffList] = useFirestoreState<StaffMember[]>('staffList', [
+  const [staffList, setStaffList] = useSupabaseState<StaffMember[]>('staffList', [
     { id: 'staff-01', name: 'Budi Santoso', phone: '081234567890', pin: '1234', role: 'Kasir', permissions: ROLE_DEFAULT_PERMISSIONS.Kasir },
     { id: 'staff-02', name: 'Hendi Pratama', phone: '081234567891', pin: '5678', role: 'Admin', permissions: ROLE_DEFAULT_PERMISSIONS.Admin }
   ]);
 
   // Printers state
-  const [printers, setPrinters] = useFirestoreState('printers', [
+  const [printers, setPrinters] = useSupabaseState('printers', [
     { name: "Printer Thermal Kasir Epson (Registrasi 01)", status: "Active", ip: "192.168.1.120" },
     { name: "Printer Label Star Micronics (Gudang)", status: "Offline", ip: "192.168.1.125" }
   ]);
 
-  // Registered owner record (same Firestore doc used by LoginView for first-time registration)
-  const [registeredOwner, setRegisteredOwner] = useFirestoreState<{ storeName: string; ownerName: string; email: string; pin: string; taxId?: string; address?: string; phone?: string; receiptNote?: string } | null>('registeredOwner', null);
+  // Registered owner record (same Supabase row used by LoginView for first-time registration)
+  const [registeredOwner, setRegisteredOwner] = useSupabaseState<{ storeName: string; ownerName: string; email: string; pin: string; taxId?: string; address?: string; phone?: string; receiptNote?: string } | null>('registeredOwner', null);
 
   // Sync derived profile fields whenever the registered-owner record changes
   useEffect(() => {

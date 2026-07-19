@@ -74,6 +74,20 @@ Rules-nya udah disiapin di `backend/firestore.rules`. Cara paling gampang tanpa 
 
 (Kalau nanti mau pakai Firebase CLI buat deploy dari terminal, itu langkah opsional lain kali.)
 
+## 6b. Aktifkan Storage (buat upload foto produk)
+
+Fitur "Upload" di field foto produk (Tambah Produk / Product Master, dan halaman Produk)
+butuh Firebase Storage aktif:
+
+1. Sidebar kiri, klik **Build > Storage**
+2. Klik **Get started**, pilih lokasi yang sama dengan Firestore, lanjut next-next
+3. Setelah aktif, buka tab **Rules** di halaman Storage
+4. Copy-paste isi file `backend/storage.rules` ke situ, klik **Publish**
+
+> Kalau langkah ini kelewat, tombol **Upload** di form produk bakal gagal
+> dengan error di console (bukan error fatal — pengisian **URL foto** manual
+> tetap jalan seperti biasa tanpa Storage).
+
 ## 7. Install & Jalanin
 
 ```bash
@@ -82,9 +96,11 @@ npm install
 npm run dev
 ```
 
-Buka app-nya — begitu load, otomatis sign-in anonim lalu Firestore bakal
-di-seed otomatis dari data mock yang ada sekarang (produk, pelanggan, dll).
-Setelah itu, semua perubahan (tambah produk, transaksi POS, dll) langsung
+Buka app-nya — begitu load, otomatis sign-in anonim, lalu tiap "tabel" data
+(produk, pelanggan, transaksi, dll) akan otomatis dibuatkan dokumen kosong
+di Firestore kalau belum ada. **Tidak ada lagi data contoh/dummy** yang
+di-seed — semua data (produk, transaksi, pelanggan, dst) murni berasal dari
+apa yang kamu input sendiri lewat aplikasi. Semua perubahan langsung
 kesimpen ke Firestore dan gak ilang lagi walau di-refresh.
 
 **Update:** semua bagian yang sebelumnya masih pakai `localStorage`

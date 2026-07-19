@@ -12,6 +12,8 @@ export interface SalesInvoice {
   customerName: string;
   customerId?: string;
   date: string;
+  /** ISO timestamp (new Date().toISOString()), used for accurate reporting/aggregation. */
+  createdAt?: string;
   items: SalesInvoiceItem[];
   total: number;
   paymentMethod: string;

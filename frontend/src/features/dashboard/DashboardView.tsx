@@ -12,11 +12,13 @@ import {
   Forklift
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, Activity } from '../../types';
+import { Product, Activity, SalesInvoice, Customer } from '../../types';
 
 interface DashboardViewProps {
   products: Product[];
   activities: Activity[];
+  salesInvoices: SalesInvoice[];
+  customers: Customer[];
   totalSales: number;
   totalOrdersCount: number;
   onTabChange: (tab: string) => void;
@@ -26,6 +28,8 @@ interface DashboardViewProps {
 export default function DashboardView({ 
   products, 
   activities, 
+  salesInvoices,
+  customers,
   totalSales, 
   totalOrdersCount, 
   onTabChange, 
@@ -35,26 +39,72 @@ export default function DashboardView({
   const [hoveredMonth, setHoveredMonth] = useState<number | null>(null);
   const [showIntelligenceReport, setShowIntelligenceReport] = useState(false);
 
-  // Month mock data for sales and profit trends (Translated names)
-  const monthlyData = [
-    { name: 'JAN', sales: 450000000, profit: 120000000 },
-    { name: 'FEB', sales: 620000000, profit: 180000000 },
-    { name: 'MAR', sales: 380000000, profit: 110000000 },
-    { name: 'APR', sales: 850000000, profit: 240000000 },
-    { name: 'MEI', sales: 1245000000, profit: 382100000 },
-    { name: 'JUN', sales: 740000000, profit: 220000000 },
-    { name: 'JUL', sales: 550000000, profit: 150000000 },
-    { name: 'AGU', sales: 1150000000, profit: 340000000 },
-    { name: 'SEP', sales: 820000000, profit: 240000000 },
-    { name: 'OKT', sales: 960000000, profit: 290000000 },
-    { name: 'NOV', sales: 680000000, profit: 190000000 },
-    { name: 'DES', sales: 1040000000, profit: 310000000 },
-  ];
+  // Estimasi profit per invoice: pakai Harga Modal (costPrice) produk kalau ada,
+  // fallback ke asumsi margin 35% untuk item yang belum diisi harga modalnya.
+  const productCostBySku = new Map(products.map((p) => [p.sku, p.costPrice]));
+  const fallbackMarginRate = 0.35;
+  const estimateInvoiceProfit = (inv: SalesInvoice) =>
+    inv.items.reduce((sum, item) => {
+      const cost = productCostBySku.get(item.sku);
+      const itemProfit = cost && cost > 0
+        ? (item.price - cost) * item.quantity
+        : item.price * item.quantity * fallbackMarginRate;
+      return sum + itemProfit;
+    }, 0);
 
-  // Convert conversions to local IDR currency references
-  const liveTodaySales = 124500000 + (totalSales * 1.0);
-  const liveNetProfit = 38210000 + (totalSales * 0.35); // assume 35% margin
-  const liveDailyOrders = 42 + totalOrdersCount;
+  const sameDay = (isoA: string, dateB: Date) => new Date(isoA).toDateString() === dateB.toDateString();
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const todayInvoices = salesInvoices.filter((inv) => inv.createdAt && sameDay(inv.createdAt, today));
+  const yesterdayInvoices = salesInvoices.filter((inv) => inv.createdAt && sameDay(inv.createdAt, yesterday));
+
+  const pctChange = (current: number, previous: number) => {
+    if (previous > 0) return ((current - previous) / previous) * 100;
+    return current > 0 ? 100 : 0;
+  };
+
+  // Data grafik tren 12 bulan terakhir, dihitung langsung dari salesInvoices (database).
+  const monthLabels = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGU', 'SEP', 'OKT', 'NOV', 'DES'];
+  const monthlyData = Array.from({ length: 12 }).map((_, idx) => {
+    const monthDate = new Date(today.getFullYear(), today.getMonth() - (11 - idx), 1);
+    const monthInvoices = salesInvoices.filter((inv) => {
+      if (!inv.createdAt) return false;
+      const d = new Date(inv.createdAt);
+      return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+    });
+    return {
+      name: monthLabels[monthDate.getMonth()],
+      sales: monthInvoices.reduce((s, inv) => s + inv.total, 0),
+      profit: monthInvoices.reduce((s, inv) => s + estimateInvoiceProfit(inv), 0),
+    };
+  });
+
+  // KPI "hari ini" dihitung dari transaksi POS sungguhan, dibandingkan kemarin.
+  const liveTodaySales = todayInvoices.reduce((s, inv) => s + inv.total, 0);
+  const yesterdaySales = yesterdayInvoices.reduce((s, inv) => s + inv.total, 0);
+  const salesChangePct = pctChange(liveTodaySales, yesterdaySales);
+
+  const liveNetProfit = todayInvoices.reduce((s, inv) => s + estimateInvoiceProfit(inv), 0);
+  const yesterdayProfit = yesterdayInvoices.reduce((s, inv) => s + estimateInvoiceProfit(inv), 0);
+  const profitChangePct = pctChange(liveNetProfit, yesterdayProfit);
+
+  const liveDailyOrders = todayInvoices.length;
+  const ordersDiff = liveDailyOrders - yesterdayInvoices.length;
+
+  // Piutang jatuh tempo dihitung dari data pelanggan sungguhan (bukan angka tetap).
+  const overdueCustomers = customers.filter((c) => c.debtStatus === 'Overdue');
+  const totalOverdueAmount = overdueCustomers.reduce(
+    (s, c) => s + (c.overdueAmount ?? c.currentDebt ?? 0),
+    0
+  );
+
+  // Peringatan stok kritis: produk asli dengan status Low/Out of Stock (bukan contoh statis).
+  const criticalStockProducts = [...products]
+    .filter((p) => p.stockStatus === 'Low Stock' || p.stockStatus === 'Out of Stock')
+    .sort((a, b) => a.stock - b.stock);
+  const mostCriticalProduct = criticalStockProducts[0];
 
   // Render bento KPI card helper with glassmorphic style
   const renderKpiCard = (
@@ -91,8 +141,10 @@ export default function DashboardView({
     );
   };
 
-  // SVG Line Chart coordinates calculation
-  const maxVal = activeChartTab === 'sales' ? 1300000000 : 400000000;
+  // SVG Line Chart coordinates calculation — skala mengikuti data asli (dengan padding 15%)
+  const maxSalesValue = Math.max(1, ...monthlyData.map((d) => d.sales));
+  const maxProfitValue = Math.max(1, ...monthlyData.map((d) => d.profit));
+  const maxVal = (activeChartTab === 'sales' ? maxSalesValue : maxProfitValue) * 1.15;
   const points = monthlyData.map((d, i) => {
     const val = activeChartTab === 'sales' ? d.sales : d.profit;
     const x = 30 + (i * 54);
@@ -127,8 +179,8 @@ export default function DashboardView({
         {renderKpiCard(
           "Pendapatan Hari Ini",
           `Rp ${liveTodaySales.toLocaleString('id-ID')}`,
-          "+14.2% dari kemarin",
-          "up",
+          `${salesChangePct >= 0 ? '+' : ''}${salesChangePct.toFixed(1)}% dari kemarin`,
+          salesChangePct >= 0 ? "up" : "down",
           <DollarSign className="w-4.5 h-4.5" />,
           "bg-emerald-500/10",
           "text-emerald-600"
@@ -136,8 +188,8 @@ export default function DashboardView({
         {renderKpiCard(
           "Estimasi Untung Bersih",
           `Rp ${liveNetProfit.toLocaleString('id-ID')}`,
-          "+8.4% bulan ini",
-          "up",
+          `${profitChangePct >= 0 ? '+' : ''}${profitChangePct.toFixed(1)}% dari kemarin`,
+          profitChangePct >= 0 ? "up" : "down",
           <TrendingUp className="w-4.5 h-4.5" />,
           "bg-blue-500/10",
           "text-blue-600"
@@ -145,17 +197,17 @@ export default function DashboardView({
         {renderKpiCard(
           "Transaksi Kasir Selesai",
           `${liveDailyOrders} Transaksi`,
-          "+3 transaksi baru",
-          "up",
+          `${ordersDiff >= 0 ? '+' : ''}${ordersDiff} dari kemarin`,
+          ordersDiff >= 0 ? "up" : "down",
           <ShoppingBag className="w-4.5 h-4.5" />,
           "bg-indigo-500/10",
           "text-indigo-600"
         )}
         {renderKpiCard(
           "Tagihan Piutang Jatuh Tempo",
-          "Rp 15.000.000",
-          "3 pembeli terlambat bayar",
-          "down",
+          `Rp ${totalOverdueAmount.toLocaleString('id-ID')}`,
+          `${overdueCustomers.length} pembeli terlambat bayar`,
+          overdueCustomers.length > 0 ? "down" : "neutral",
           <FileText className="w-4.5 h-4.5" />,
           "bg-amber-500/10",
           "text-amber-600"
@@ -332,16 +384,18 @@ export default function DashboardView({
 
                 {/* Tech Coordinates Accent */}
                 <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-2 text-[9px] font-mono text-slate-500">
-                  <span>SYSTEM ACTIVE • OPTIMAL</span>
-                  <span className="text-emerald-400">✓ ACCURACY 98%</span>
+                  <span>SYSTEM ACTIVE • LIVE DATA</span>
+                  <span className="text-emerald-400">{products.length} SKU dipantau</span>
                 </div>
 
                 <div className="space-y-3">
                   <div className="bg-black/35 p-2.5 border border-slate-800/80 rounded-xl">
                     <div className="flex gap-2">
-                      <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                      {salesChangePct >= 0
+                        ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                        : <TrendingDown className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />}
                       <p className="text-[11px] text-slate-300 uppercase tracking-wide leading-normal">
-                        Pendapatan naik <span className="font-bold text-emerald-400">12%</span>. Pembelian semen tertinggi pada jam 10:00 - 14:00.
+                        Pendapatan hari ini {salesChangePct >= 0 ? 'naik' : 'turun'} <span className={`font-bold ${salesChangePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{Math.abs(salesChangePct).toFixed(1)}%</span> dibanding kemarin, dari {todayInvoices.length} transaksi kasir.
                       </p>
                     </div>
                   </div>
@@ -350,7 +404,9 @@ export default function DashboardView({
                     <div className="flex gap-2">
                       <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
                       <p className="text-[11px] text-slate-300 uppercase tracking-wide leading-normal">
-                        <span className="font-bold text-red-400">Stok Kritis:</span> Semen abu-abu Portland tipe I tersisa hanya untuk 3 hari persediaan.
+                        {mostCriticalProduct
+                          ? <><span className="font-bold text-red-400">Stok Kritis:</span> {mostCriticalProduct.name} tersisa {mostCriticalProduct.stock} {mostCriticalProduct.unit}.</>
+                          : <>Belum ada produk dengan stok kritis saat ini.</>}
                       </p>
                     </div>
                   </div>
@@ -359,7 +415,9 @@ export default function DashboardView({
                     <div className="flex gap-2 items-center justify-between w-full">
                       <div className="flex gap-1.5 items-center">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <p className="text-[10px] text-white uppercase tracking-wider font-extrabold">Stok Rendah</p>
+                        <p className="text-[10px] text-white uppercase tracking-wider font-extrabold">
+                          {criticalStockProducts.length > 0 ? `${criticalStockProducts.length} Produk Stok Rendah` : 'Stok Rendah'}
+                        </p>
                       </div>
                       <button 
                         onClick={onQuickRestock}
@@ -532,21 +590,35 @@ export default function DashboardView({
                 </button>
               </div>
               <div className="space-y-4 text-xs text-slate-600 max-h-96 overflow-y-auto pr-1 leading-relaxed">
-                <p className="font-bold text-slate-800">Analisis Prospek Pasar:</p>
+                <p className="font-bold text-slate-800">Ringkasan Performa:</p>
                 <p>
-                  Sistem AI memprediksi adanya kenaikan musiman sebesar 25% dalam permintaan material struktural pondasi (seperti Semen Portland, Pasir Beton, dan Besi Ulir) untuk 10-14 hari ke depan. Hal ini disebabkan oleh peluncuran proyek infrastruktur perumahan sipil di wilayah kota terdekat.
+                  Pendapatan hari ini {salesChangePct >= 0 ? 'naik' : 'turun'} {Math.abs(salesChangePct).toFixed(1)}% dibanding kemarin, dari {todayInvoices.length} transaksi kasir senilai Rp {liveTodaySales.toLocaleString('id-ID')}. Estimasi untung bersih hari ini sekitar Rp {liveNetProfit.toLocaleString('id-ID')}.
                 </p>
-                <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-900 space-y-2">
-                  <p className="font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> Peringatan Kritis Stok Rendah</p>
-                  <p>
-                    Pasokan semen curah saat ini berada di bawah batas aman minimum (hanya tersisa 82 zak). Jika dirata-rata dengan penjualan kasir harian, semen ini diprediksi akan habis total pada hari Kamis sore mendatang.
-                  </p>
-                </div>
-                <p className="font-bold text-slate-800">Rekomendasi Tindakan Strategis:</p>
+                {mostCriticalProduct && (
+                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-900 space-y-2">
+                    <p className="font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> Peringatan Kritis Stok Rendah</p>
+                    <p>
+                      {mostCriticalProduct.name} tersisa {mostCriticalProduct.stock} {mostCriticalProduct.unit}
+                      {criticalStockProducts.length > 1 ? `, dan ${criticalStockProducts.length - 1} produk lain juga berstatus stok rendah/habis.` : '.'}
+                    </p>
+                  </div>
+                )}
+                <p className="font-bold text-slate-800">Rekomendasi Tindakan:</p>
                 <ul className="list-disc pl-5 space-y-2">
-                  <li>Segera lakukan restock atau buat PO (Purchase Order) baru ke supplier <span className="font-bold">PT Semen Tiga Roda Utama</span> sebanyak 500 zak semen untuk mengamankan stok pengiriman.</li>
-                  <li>Tawarkan diskon harga grosir otomatis bagi kontraktor proyek yang bertransaksi antara jam 10 pagi hingga jam 2 siang guna mengoptimalkan operasional angkut armada toko.</li>
-                  <li>Kirim tagihan invoice piutang kepada PT Bangun Mandiri untuk menyelesaikan saldo jatuh tempo sebesar <span className="font-bold text-red-600">Rp 12.000.000</span> guna memperlancar arus kas cair (liquid cash-flow).</li>
+                  {mostCriticalProduct && (
+                    <li>Segera buat PO (Purchase Order) untuk <span className="font-bold">{mostCriticalProduct.name}</span> sebelum stok benar-benar habis.</li>
+                  )}
+                  {overdueCustomers.length > 0 ? (
+                    <li>
+                      Tindak lanjuti {overdueCustomers.length} pelanggan dengan tagihan jatuh tempo, total senilai{' '}
+                      <span className="font-bold text-red-600">Rp {totalOverdueAmount.toLocaleString('id-ID')}</span> guna memperlancar arus kas.
+                    </li>
+                  ) : (
+                    <li>Tidak ada piutang jatuh tempo saat ini — arus kas dari penjualan kredit dalam kondisi aman.</li>
+                  )}
+                  {!mostCriticalProduct && overdueCustomers.length === 0 && (
+                    <li>Belum ada data transaksi yang cukup untuk rekomendasi tambahan. Rekomendasi akan muncul seiring bertambahnya data penjualan.</li>
+                  )}
                 </ul>
               </div>
               <div className="pt-4 border-t border-slate-100 flex justify-end gap-2">

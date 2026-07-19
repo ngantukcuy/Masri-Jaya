@@ -37,8 +37,9 @@ export function useFirestoreState<T>(
         if (snap.exists()) {
           setValueState(snap.data().value as T);
         } else {
-          // First run for this collection: seed Firestore with the mock data
-          // so the app has something to show and future reloads persist.
+          // First run for this collection: initialize the Firestore document
+          // with the provided default (usually an empty array) so future
+          // reloads persist real, user-entered data — no demo/dummy content.
           setDoc(ref, { value: initialValue }).catch((err) =>
             console.error(`[firestore] Gagal seed data awal untuk "${key}":`, err)
           );

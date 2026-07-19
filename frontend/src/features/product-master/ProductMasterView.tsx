@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Tags,
   Award,
@@ -10,10 +10,15 @@ import {
   PackageSearch,
   Scale,
   Barcode as BarcodeIcon,
-  ImagePlus
+  ImagePlus,
+  Upload,
+  ScanLine,
+  Loader2
 } from 'lucide-react';
 import { Product, Bundle, BundleItem, SkuLocation } from '../../types';
-import { useFirestoreState } from '../../lib/useFirestoreState';
+import { useSupabaseState } from '../../lib/useSupabaseState';
+import { uploadProductImage } from '../../lib/uploadProductImage';
+import BarcodeScannerModal from '../../components/shared/BarcodeScannerModal';
 
 interface CategoryEntry {
   id: string;
@@ -35,7 +40,7 @@ interface ProductMasterViewProps {
 }
 
 function useLocalList<T extends { id: string }>(key: string, defaults: T[]) {
-  const [list, setList] = useFirestoreState<T[]>(key, defaults);
+  const [list, setList] = useSupabaseState<T[]>(key, defaults);
   return { list, persist: setList };
 }
 
@@ -124,6 +129,34 @@ export default function ProductMasterView({ products, onAddActivity, onUpdatePro
   const kategori3List = categories.filter(c => c.level === 3);
 
   const generateBarcode = () => `${Math.floor(1000000000000 + Math.random() * 8999999999999)}`;
+
+  // ---- Scan barcode langsung pakai kamera (mengisi form induk/eceran) ----
+  const [scannerTarget, setScannerTarget] = useState<'induk' | 'eceran' | null>(null);
+  const handleBarcodeDetected = (code: string) => {
+    if (scannerTarget === 'induk') setSkuForm((prev) => ({ ...prev, barcode: code }));
+    if (scannerTarget === 'eceran') setEceranForm((prev) => ({ ...prev, barcode: code }));
+    setScannerTarget(null);
+  };
+
+  // ---- Upload foto produk dari perangkat (alternatif dari URL) ----
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImageUploadError(null);
+    setImageUploading(true);
+    try {
+      const url = await uploadProductImage(file);
+      setSkuForm((prev) => ({ ...prev, image: url }));
+    } catch (err) {
+      setImageUploadError(err instanceof Error ? err.message : 'Gagal mengunggah gambar.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
 
   const handleSubmitInduk = (e: React.FormEvent) => {
     e.preventDefault();
@@ -372,8 +405,24 @@ export default function ProductMasterView({ products, onAddActivity, onUpdatePro
             <form onSubmit={handleSubmitInduk} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4 max-w-2xl text-xs">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}><ImagePlus className="inline w-3 h-3 mr-1" />URL Foto Produk</label>
-                  <input type="text" value={skuForm.image} onChange={(e) => setSkuForm({ ...skuForm, image: e.target.value })} placeholder="Masukkan URL gambar..." className={inputCls} />
+                  <label className={labelCls}><ImagePlus className="inline w-3 h-3 mr-1" />Foto Produk</label>
+                  <div className="flex gap-2">
+                    <input type="text" value={skuForm.image} onChange={(e) => setSkuForm({ ...skuForm, image: e.target.value })} placeholder="Tempel URL gambar..." className={inputCls} />
+                    <button
+                      type="button"
+                      onClick={() => imageFileInputRef.current?.click()}
+                      disabled={imageUploading}
+                      className="px-3 bg-gray-900 hover:bg-black text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap flex items-center gap-1 disabled:opacity-60"
+                    >
+                      {imageUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                      Upload
+                    </button>
+                    <input ref={imageFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelect} />
+                  </div>
+                  {imageUploadError && <p className="text-[9px] text-red-500 font-bold mt-1">{imageUploadError}</p>}
+                  {skuForm.image && (
+                    <img src={skuForm.image} alt="Preview produk" className="mt-2 w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                  )}
                 </div>
                 <div>
                   <label className={labelCls}>Nama Alias Produk</label>
@@ -448,6 +497,9 @@ export default function ProductMasterView({ products, onAddActivity, onUpdatePro
                 <label className={labelCls}><BarcodeIcon className="inline w-3 h-3 mr-1" />Barcode</label>
                 <div className="flex gap-2">
                   <input type="text" value={skuForm.barcode} onChange={(e) => setSkuForm({ ...skuForm, barcode: e.target.value })} placeholder="Scan atau generate barcode..." className={inputCls} />
+                  <button type="button" onClick={() => setScannerTarget('induk')} className="px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap flex items-center gap-1">
+                    <ScanLine className="w-3 h-3" /> Scan
+                  </button>
                   <button type="button" onClick={() => setSkuForm({ ...skuForm, barcode: generateBarcode() })} className="px-3 bg-gray-900 hover:bg-black text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap">
                     Generate
                   </button>
@@ -548,6 +600,9 @@ export default function ProductMasterView({ products, onAddActivity, onUpdatePro
                 <label className={labelCls}><BarcodeIcon className="inline w-3 h-3 mr-1" />Barcode Number</label>
                 <div className="flex gap-2">
                   <input type="text" value={eceranForm.barcode} onChange={(e) => setEceranForm({ ...eceranForm, barcode: e.target.value })} placeholder="Scan atau generate barcode..." className={inputCls} />
+                  <button type="button" onClick={() => setScannerTarget('eceran')} className="px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap flex items-center gap-1">
+                    <ScanLine className="w-3 h-3" /> Scan
+                  </button>
                   <button type="button" onClick={() => setEceranForm({ ...eceranForm, barcode: generateBarcode() })} className="px-3 bg-gray-900 hover:bg-black text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap">
                     Generate
                   </button>
@@ -836,6 +891,14 @@ export default function ProductMasterView({ products, onAddActivity, onUpdatePro
             </button>
           </div>
         </div>
+      )}
+
+      {scannerTarget && (
+        <BarcodeScannerModal
+          title="Scan Barcode Produk"
+          onClose={() => setScannerTarget(null)}
+          onDetected={handleBarcodeDetected}
+        />
       )}
     </div>
   );

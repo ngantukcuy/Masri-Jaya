@@ -21,31 +21,17 @@ import DepositView from './features/deposits/DepositView';
 import TransactionHistoryView from './features/transactions/TransactionHistoryView';
 import { LayoutDashboard, CornerDownRight, Boxes, Menu, Receipt } from 'lucide-react';
 
-import { 
-  initialProducts, 
-  initialPOs, 
-  initialSuppliers, 
-  initialCustomers, 
-  initialExpenses, 
-  initialActivities, 
-  initialBranches,
-  initialSalesInvoices,
-  initialReturns,
-  initialDigitalOrders,
-  initialBanners,
-  initialSkuLocations
-} from './data/mockData';
 import { Product, PO, Customer, Expense, Activity, Branch, Supplier, SalesInvoice, ReturnRecord, DigitalOrder, Banner, SkuLocation } from './types';
-import { useFirestoreState } from './lib/useFirestoreState';
-import { useFirebaseReady } from './lib/useFirebaseReady';
+import { useSupabaseState } from './lib/useSupabaseState';
+import { useSupabaseReady } from './lib/useSupabaseReady';
 
 export default function App() {
-  const firebaseReady = useFirebaseReady();
+  const supabaseReady = useSupabaseReady();
 
   // Wait for anonymous auth before mounting anything that reads/writes
-  // Firestore (see useFirestoreState) — avoids a permission-denied flash
+  // Supabase (see useSupabaseState) — avoids a permission-denied flash
   // on first load.
-  if (!firebaseReady) {
+  if (!supabaseReady) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-2">
@@ -64,23 +50,23 @@ function AppShell() {
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string } | null>(null);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [products, setProducts] = useFirestoreState<Product[]>('products', initialProducts);
-  const [pos, setPOs] = useFirestoreState<PO[]>('purchaseOrders', initialPOs);
-  const [customers, setCustomers] = useFirestoreState<Customer[]>('customers', initialCustomers);
-  const [suppliers, setSuppliers] = useFirestoreState<Supplier[]>('suppliers', initialSuppliers);
-  const [expenses, setExpenses] = useFirestoreState<Expense[]>('expenses', initialExpenses);
-  const [activities, setActivities] = useFirestoreState<Activity[]>('activities', initialActivities);
-  const [branches, setBranches] = useFirestoreState<Branch[]>('branches', initialBranches);
-  const [salesInvoices, setSalesInvoices] = useFirestoreState<SalesInvoice[]>('salesInvoices', initialSalesInvoices);
-  const [returns, setReturns] = useFirestoreState<ReturnRecord[]>('returns', initialReturns);
-  const [digitalOrders, setDigitalOrders] = useFirestoreState<DigitalOrder[]>('digitalOrders', initialDigitalOrders);
-  const [banners, setBanners] = useFirestoreState<Banner[]>('banners', initialBanners);
-  const [skuLocations, setSkuLocations] = useFirestoreState<SkuLocation[]>('skuLocations', initialSkuLocations);
-  const [ecommerceUsername, setEcommerceUsername] = useFirestoreState<string>('ecommerceUsername', '');
+  const [products, setProducts] = useSupabaseState<Product[]>('products', []);
+  const [pos, setPOs] = useSupabaseState<PO[]>('purchaseOrders', []);
+  const [customers, setCustomers] = useSupabaseState<Customer[]>('customers', []);
+  const [suppliers, setSuppliers] = useSupabaseState<Supplier[]>('suppliers', []);
+  const [expenses, setExpenses] = useSupabaseState<Expense[]>('expenses', []);
+  const [activities, setActivities] = useSupabaseState<Activity[]>('activities', []);
+  const [branches, setBranches] = useSupabaseState<Branch[]>('branches', []);
+  const [salesInvoices, setSalesInvoices] = useSupabaseState<SalesInvoice[]>('salesInvoices', []);
+  const [returns, setReturns] = useSupabaseState<ReturnRecord[]>('returns', []);
+  const [digitalOrders, setDigitalOrders] = useSupabaseState<DigitalOrder[]>('digitalOrders', []);
+  const [banners, setBanners] = useSupabaseState<Banner[]>('banners', []);
+  const [skuLocations, setSkuLocations] = useSupabaseState<SkuLocation[]>('skuLocations', []);
+  const [ecommerceUsername, setEcommerceUsername] = useSupabaseState<string>('ecommerceUsername', '');
 
   // Dynamic metrics added from POS checkout
-  const [totalSales, setTotalSales] = useFirestoreState<number>('totalSales', 0);
-  const [totalOrdersCount, setTotalOrdersCount] = useFirestoreState<number>('totalOrdersCount', 0);
+  const [totalSales, setTotalSales] = useSupabaseState<number>('totalSales', 0);
+  const [totalOrdersCount, setTotalOrdersCount] = useSupabaseState<number>('totalOrdersCount', 0);
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,6 +140,8 @@ function AppShell() {
                   <DashboardView 
                     products={products}
                     activities={activities}
+                    salesInvoices={salesInvoices}
+                    customers={customers}
                     totalSales={totalSales}
                     totalOrdersCount={totalOrdersCount}
                     onTabChange={setCurrentTab}
@@ -299,6 +287,8 @@ function AppShell() {
                   <DashboardView 
                     products={products}
                     activities={activities}
+                    salesInvoices={salesInvoices}
+                    customers={customers}
                     totalSales={totalSales}
                     totalOrdersCount={totalOrdersCount}
                     onTabChange={setCurrentTab}

@@ -28,7 +28,7 @@ import ReceiptModal from './components/ReceiptModal';
 import AddProductModal from './components/AddProductModal';
 import AddCustomerModal from './components/AddCustomerModal';
 import { recordSale } from '../../lib/cashSession';
-import { getFirestoreCache } from '../../lib/firestoreCache';
+import { getSupabaseCache } from '../../lib/supabaseCache';
 import { playBeep, playPrintSound } from './lib/posAudio';
 import {
   CartItem,
@@ -466,6 +466,7 @@ export default function POSView({
         customerName: selectedCustomer.name,
         customerId: selectedCustomer.id,
         date: new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
+        createdAt: new Date().toISOString(),
         items: cart.map((item) => ({
           sku: item.product.sku,
           name: item.product.name,
@@ -515,8 +516,8 @@ export default function POSView({
 
   // Trigger simulated receipt feed
   const handlePrintReceiptSim = () => {
-    // Check cached printer status (synced from Firestore, see lib/firestoreCache.ts)
-    const cachedPrinters = getFirestoreCache<any[]>('printers', []);
+    // Check cached printer status (synced from Supabase, see lib/supabaseCache.ts)
+    const cachedPrinters = getSupabaseCache<any[]>('printers', []);
     let hasActivePrinter = true;
     let connectedPrinterName = "Printer Thermal Kasir Epson (Registrasi 01)";
     const activePr = cachedPrinters.find((p: any) => p.status === 'Active');

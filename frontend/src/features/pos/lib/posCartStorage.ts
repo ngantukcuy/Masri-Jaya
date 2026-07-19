@@ -1,5 +1,5 @@
 import { Product } from '../../../types';
-import { getFirestoreCache, setFirestoreCache } from '../../../lib/firestoreCache';
+import { getSupabaseCache, setSupabaseCache } from '../../../lib/supabaseCache';
 
 export interface CartItem {
   product: Product;
@@ -25,7 +25,7 @@ const emptyState = (): PersistedPOSState => ({
 });
 
 export const readPersistedPOSState = (): PersistedPOSState => {
-  const parsed = getFirestoreCache<Partial<PersistedPOSState>>(POS_CART_STORAGE_KEY, emptyState());
+  const parsed = getSupabaseCache<Partial<PersistedPOSState>>(POS_CART_STORAGE_KEY, emptyState());
   return {
     cart: Array.isArray(parsed.cart) ? parsed.cart : [],
     selectedCustomerId: typeof parsed.selectedCustomerId === 'string' ? parsed.selectedCustomerId : null,
@@ -37,9 +37,9 @@ export const readPersistedPOSState = (): PersistedPOSState => {
 };
 
 export const writePersistedPOSState = (state: PersistedPOSState) => {
-  setFirestoreCache(POS_CART_STORAGE_KEY, state);
+  setSupabaseCache(POS_CART_STORAGE_KEY, state);
 };
 
 export const clearPersistedPOSState = () => {
-  setFirestoreCache(POS_CART_STORAGE_KEY, emptyState());
+  setSupabaseCache(POS_CART_STORAGE_KEY, emptyState());
 };

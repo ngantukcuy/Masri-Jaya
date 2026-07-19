@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Boxes, 
   AlertTriangle, 
@@ -12,11 +12,14 @@ import {
   Warehouse,
   ChevronRight,
   Edit3,
-  Trash2
+  Trash2,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { Product } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { useFirestoreState } from '../../lib/useFirestoreState';
+import { useSupabaseState } from '../../lib/useSupabaseState';
+import { uploadProductImage } from '../../lib/uploadProductImage';
 
 interface ProductsViewProps {
   products: Product[];
@@ -47,6 +50,24 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
   const [formStock, setFormStock] = useState(0);
   const [formLocation, setFormLocation] = useState('Section A - Row 01');
   const [formImage, setFormImage] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImageUploadError(null);
+    setImageUploading(true);
+    try {
+      const url = await uploadProductImage(file);
+      setFormImage(url);
+    } catch (err) {
+      setImageUploadError(err instanceof Error ? err.message : 'Gagal mengunggah gambar.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
 
   // Adjustment states
   const [adjustProductSku, setAdjustProductSku] = useState(products[0]?.sku || '');
@@ -79,7 +100,7 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
       status: 'Pending'
     }
   ];
-  const [opnameSubmissions, setOpnameSubmissions] = useFirestoreState<any[]>('opnameSubmissions', opnameDefaults);
+  const [opnameSubmissions, setOpnameSubmissions] = useSupabaseState<any[]>('opnameSubmissions', opnameDefaults);
 
   const saveSubmissions = (subs: any[]) => {
     setOpnameSubmissions(subs);
@@ -1039,14 +1060,30 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-gray-400 font-bold uppercase mb-1">URL Gambar Ilustrasi</label>
-                  <input 
-                    type="text"
-                    placeholder="Masukkan URL gambar produk..."
-                    value={formImage}
-                    onChange={(e) => setFormImage(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 font-semibold text-gray-700 outline-none focus:bg-white focus:border-blue-500"
-                  />
+                  <label className="block text-[10px] text-gray-400 font-bold uppercase mb-1">Foto Produk</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Tempel URL gambar produk..."
+                      value={formImage}
+                      onChange={(e) => setFormImage(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 font-semibold text-gray-700 outline-none focus:bg-white focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageFileInputRef.current?.click()}
+                      disabled={imageUploading}
+                      className="px-3 bg-gray-900 hover:bg-black text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap flex items-center gap-1 disabled:opacity-60"
+                    >
+                      {imageUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                      Upload
+                    </button>
+                    <input ref={imageFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelect} />
+                  </div>
+                  {imageUploadError && <p className="text-[9px] text-red-500 font-bold mt-1">{imageUploadError}</p>}
+                  {formImage && (
+                    <img src={formImage} alt="Preview produk" className="mt-2 w-14 h-14 object-cover rounded-lg border border-gray-200" />
+                  )}
                 </div>
 
                 <div className="pt-3 border-t border-gray-100 flex gap-2">
@@ -1206,14 +1243,30 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-gray-400 font-bold uppercase mb-1">URL Gambar Ilustrasi</label>
-                  <input 
-                    type="text"
-                    placeholder="Masukkan URL gambar produk..."
-                    value={formImage}
-                    onChange={(e) => setFormImage(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 font-semibold text-gray-700 outline-none focus:bg-white focus:border-blue-500"
-                  />
+                  <label className="block text-[10px] text-gray-400 font-bold uppercase mb-1">Foto Produk</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Tempel URL gambar produk..."
+                      value={formImage}
+                      onChange={(e) => setFormImage(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 font-semibold text-gray-700 outline-none focus:bg-white focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageFileInputRef.current?.click()}
+                      disabled={imageUploading}
+                      className="px-3 bg-gray-900 hover:bg-black text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer whitespace-nowrap flex items-center gap-1 disabled:opacity-60"
+                    >
+                      {imageUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                      Upload
+                    </button>
+                    <input ref={imageFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelect} />
+                  </div>
+                  {imageUploadError && <p className="text-[9px] text-red-500 font-bold mt-1">{imageUploadError}</p>}
+                  {formImage && (
+                    <img src={formImage} alt="Preview produk" className="mt-2 w-14 h-14 object-cover rounded-lg border border-gray-200" />
+                  )}
                 </div>
 
                 <div className="pt-3 border-t border-gray-100 flex gap-2">

@@ -12,7 +12,7 @@ import {
   Users,
   ShieldAlert
 } from 'lucide-react';
-import { useFirestoreState } from '../../lib/useFirestoreState';
+import { useSupabaseState } from '../../lib/useSupabaseState';
 
 interface Staff {
   id: string;
@@ -26,8 +26,8 @@ interface LoginViewProps {
 }
 
 export default function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const [registeredOwner, setRegisteredOwner] = useFirestoreState<{ storeName: string; ownerName: string; email: string; pin: string } | null>('registeredOwner', null);
-  const [staffList, setStaffList] = useFirestoreState<Staff[]>('staffList', []);
+  const [registeredOwner, setRegisteredOwner] = useSupabaseState<{ storeName: string; ownerName: string; email: string; pin: string } | null>('registeredOwner', null);
+  const [staffList, setStaffList] = useSupabaseState<Staff[]>('staffList', []);
 
   const [isRegistered, setIsRegistered] = useState(false);
   const [storeName, setStoreName] = useState('');
@@ -40,7 +40,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // React to the registered-owner / staff-list Firestore docs as they load or change
+  // React to the registered-owner / staff-list Supabase rows as they load or change
   useEffect(() => {
     if (registeredOwner) {
       setIsRegistered(true);

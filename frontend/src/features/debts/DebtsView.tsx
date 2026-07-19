@@ -16,7 +16,7 @@ import {
 import { Customer } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { addMutation } from '../../lib/cashSession';
-import { getFirestoreCache } from '../../lib/firestoreCache';
+import { getSupabaseCache } from '../../lib/supabaseCache';
 
 interface DebtsViewProps {
   customers: Customer[];
@@ -197,8 +197,8 @@ export default function DebtsView({
 
   const simulatePrint = () => {
     setIsPrinting(true);
-    // Check cached printer status (synced from Firestore, see lib/firestoreCache.ts)
-    const cachedPrinters = getFirestoreCache<any[]>('printers', []);
+    // Check cached printer status (synced from Supabase, see lib/supabaseCache.ts)
+    const cachedPrinters = getSupabaseCache<any[]>('printers', []);
     let connectedPrinterName = "Printer Thermal Epson (Aktif)";
     const activePr = cachedPrinters.find((p: any) => p.status === 'Active');
     if (activePr) connectedPrinterName = activePr.name;

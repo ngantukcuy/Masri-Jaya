@@ -26,11 +26,11 @@ Enterprise Material ERP and POS Dashboard untuk Tokku Build HQ. Aplikasi ini men
 ## Struktur Proyek
 
 - `src/App.tsx` — root komponen & routing antar halaman
-- `src/components/` — seluruh halaman/fitur (POS, Produk, Keuangan, Kas Harian, Pengaturan, dll)
-- `src/data.ts` — data contoh/dummy untuk pengembangan
-- `src/types.ts` — definisi tipe TypeScript
-- `src/lib/` — util bersama
+- `src/components/` — layout & komponen UI bersama
+- `src/features/` — seluruh halaman/fitur (POS, Produk, Keuangan, Kas Harian, Pengaturan, dll), masing-masing di folder sendiri
+- `src/types/` — definisi tipe TypeScript, dipecah per domain (product, sales, finance, dst)
+- `src/lib/` — util bersama, termasuk client & hook Supabase (`supabase.ts`, `useSupabaseState.ts`, `useSupabaseReady.ts`, `supabaseCache.ts`)
 
 ## Catatan
 
-Data pada aplikasi ini saat ini disimpan di `localStorage` browser (belum terhubung ke backend/database).
+Data pada aplikasi ini disimpan di Supabase (Postgres), realtime lewat Supabase Realtime — lihat `../SUPABASE_SETUP.md` untuk cara setup project Supabase-nya dari nol sebelum menjalankan `npm run dev`. Tanpa `frontend/.env` terisi, aplikasi tidak akan bisa memuat atau menyimpan data apa pun.

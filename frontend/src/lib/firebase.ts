@@ -5,6 +5,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
 
 const readEnvValue = (key: string) =>
   String(import.meta.env[key] ?? '')
@@ -43,6 +44,7 @@ export const app =
     : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // This app doesn't have real user accounts yet (LoginView.tsx does a local
 // PIN check, not Firebase Auth). Firestore security rules still require

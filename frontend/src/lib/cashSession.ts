@@ -1,17 +1,17 @@
 import { CashSession, CashMutation } from '../types';
-import { getFirestoreCache, setFirestoreCache } from './firestoreCache';
+import { getSupabaseCache, setSupabaseCache } from './supabaseCache';
 
 const CURRENT_KEY = 'cashSessionCurrent';
 const HISTORY_KEY = 'cashSessionHistory';
 
 export function getCurrentSession(): CashSession | null {
-  const cached = getFirestoreCache<CashSession | null>(CURRENT_KEY, null);
+  const cached = getSupabaseCache<CashSession | null>(CURRENT_KEY, null);
   if (!cached || cached.status !== 'Open') return null;
   return cached;
 }
 
 export function getSessionHistory(): CashSession[] {
-  return getFirestoreCache<CashSession[]>(HISTORY_KEY, []);
+  return getSupabaseCache<CashSession[]>(HISTORY_KEY, []);
 }
 
 export function openSession(openingBalance: number): CashSession {
@@ -27,7 +27,7 @@ export function openSession(openingBalance: number): CashSession {
     totalStocksSoldCash: 0,
     totalInvoicesNonCash: 0,
   };
-  setFirestoreCache(CURRENT_KEY, session);
+  setSupabaseCache(CURRENT_KEY, session);
   return session;
 }
 
@@ -45,7 +45,7 @@ export function addMutation(type: 'in' | 'out', category: string, amount: number
     time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
   };
   session.mutations = [mutation, ...session.mutations];
-  setFirestoreCache(CURRENT_KEY, session);
+  setSupabaseCache(CURRENT_KEY, session);
   return session;
 }
 
@@ -61,7 +61,7 @@ export function recordSale(isCash: boolean, invoiceTotal: number, stockQty: numb
   } else {
     session.totalInvoicesNonCash += 1;
   }
-  setFirestoreCache(CURRENT_KEY, session);
+  setSupabaseCache(CURRENT_KEY, session);
 }
 
 export function getMutationTotals(session: CashSession) {
@@ -82,7 +82,7 @@ export function closeSession(actualCash: number): CashSession | null {
 
   const history = getSessionHistory();
   const updatedHistory = [session, ...history];
-  setFirestoreCache(HISTORY_KEY, updatedHistory);
-  setFirestoreCache(CURRENT_KEY, null);
+  setSupabaseCache(HISTORY_KEY, updatedHistory);
+  setSupabaseCache(CURRENT_KEY, null);
   return session;
 }
