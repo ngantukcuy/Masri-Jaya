@@ -776,7 +776,7 @@ export default function ProductsView({ products, onUpdateProducts, onAddActivity
                     <span className="font-extrabold text-gray-900">Rp {selectedProduct.retailPrice.toLocaleString('id-ID')} / {selectedProduct.unit}</span>
                   </div>
                   <div className="flex justify-between p-2">
-                    <span className="text-gray-500 font-medium flex items-center gap-1">Harga Grosir <Info className="w-3.5 h-3.5 text-blue-500" title="Auto-aktif jika pembelian >= 10 unit" /></span>
+                    <span className="text-gray-500 font-medium flex items-center gap-1">Harga Grosir <Info className="w-3.5 h-3.5 text-blue-500" aria-label="Auto-aktif jika pembelian >= 10 unit" /></span>
                     <span className="font-extrabold text-gray-900">Rp {selectedProduct.wholesalePrice.toLocaleString('id-ID')} / {selectedProduct.unit}</span>
                   </div>
                   <div className="flex justify-between p-2">

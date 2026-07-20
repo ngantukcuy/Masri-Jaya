@@ -64,15 +64,15 @@ const ROLE_DEFAULT_PERMISSIONS: Record<'Owner' | 'Admin' | 'Kasir' | 'Stoker', s
 export default function SettingsView({ branches, onUpdateBranches, skuLocations, onUpdateSkuLocations, onAddActivity }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'branches' | 'locations' | 'printers' | 'security' | 'accounts'>('profile');
   const [storeProfile, setStoreProfile] = useState<StoreProfile>({
-    storeName: 'TB Sinar Maju Pusat',
+    storeName: 'Panglong Masri Jaya',
     ownerName: 'Owner',
-    email: 'admin@sinarmaju-materials.com',
-    phone: '+62 812-0000-0000',
-    address: 'Jl. Panglima Sudirman No. 45',
-    city: 'Pekanbaru',
-    taxId: 'NPWP-99.283.4-X10.000',
+    email: 'masrijaya@gmail.com',
+    phone: '+62 813-7483-5519',
+    address: 'Jl. Rawe 7, martubung',
+    city: 'Medan',
+    taxId: '-',
     receiptNote: 'Terima kasih telah berbelanja',
-    pin: '8821'
+    pin: '1945'
   });
   const [branchForm, setBranchForm] = useState({
     name: '',
@@ -108,12 +108,12 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
   const [lockdownActive, setLockdownActive] = useState(false);
 
   // Profile forms state
-  const [companyName, setCompanyName] = useState('TB Sinar Maju Pusat');
-  const [taxId, setTaxId] = useState('NPWP-99.283.4-X10.000');
-  const [email, setEmail] = useState('admin@sinarmaju-materials.com');
+  const [companyName, setCompanyName] = useState('Panglong Masri Jaya');
+  const [taxId, setTaxId] = useState('-');
+  const [email, setEmail] = useState('masrijaya@gmail.com');
 
   // Security & Staff states
-  const [ownerPin, setOwnerPin] = useState('8821');
+  const [ownerPin, setOwnerPin] = useState('1945');
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
@@ -950,14 +950,14 @@ export default function SettingsView({ branches, onUpdateBranches, skuLocations,
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">4-Digit PIN Kasir (Hanya Angka)</label>
+                    <label className="block text-[9px] text-gray-400 font-bold uppercase mb-1">6-Digit PIN Kasir (Hanya Angka)</label>
                     <input 
                       type="password"
                       placeholder="Contoh: 1234"
                       value={newStaffPin}
-                      maxLength={4}
+                      maxLength={6}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
                         setNewStaffPin(val);
                       }}
                       className="w-full bg-white border border-gray-200 rounded-lg p-2 font-mono font-bold text-gray-800 outline-none"

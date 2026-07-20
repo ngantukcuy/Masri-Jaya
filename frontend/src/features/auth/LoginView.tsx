@@ -91,12 +91,12 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
   // PIN keyboard digit handler
   const handlePinDigit = (digit: string) => {
-    if (pinInput.length < 4) {
+    if (pinInput.length < 6) { // Allow up to 6 digits for staff PINs
       const nextPin = pinInput + digit;
       setPinInput(nextPin);
       setPinError(false);
 
-      if (nextPin.length === 4 && selectedStaff) {
+      if (nextPin.length === 6 && selectedStaff) {
         if (nextPin === selectedStaff.pin) {
           // Success login
           onLoginSuccess({ name: selectedStaff.name, role: selectedStaff.role });
